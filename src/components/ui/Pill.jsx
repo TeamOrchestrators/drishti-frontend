@@ -9,14 +9,22 @@ const Pill = ({ children, tone = "muted" }) => {
     },
     ice: {
       c: colors.ice,
-      bg: "rgba(99, 196, 214, 0.1)",
+      bg: colors.iceBg,
       b: colors.iceDim,
     },
-    amber: { c: colors.amber, bg: "rgba(232,160,61,0.12)", b: colors.amberDim },
-    flare: { c: colors.flare, bg: "rgba(232,93,93,0.14)", b: colors.flareDim },
+    amber: {
+      c: colors.amber,
+      bg: colors.amberBg,
+      b: colors.amberDim,
+    },
+    flare: {
+      c: colors.flare,
+      bg: colors.flareTint,
+      b: colors.flareDim,
+    },
     aurora: {
       c: colors.aurora,
-      bg: "rgba(127,224,168,0.12)",
+      bg: colors.auroraBg,
       b: colors.auroraDim,
     },
   };

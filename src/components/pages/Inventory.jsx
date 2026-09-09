@@ -6,7 +6,7 @@ import Pill from "../ui/Pill";
 import Bar from "../ui/Bar";
 import SectionHeading from "../ui/SectionHeading";
 import Modal from "../ui/Modal";
-import FormField from "../ui/FormField";
+import FormField from "../ui/Formfield";
 import { mockInventory as initialInventory, inventoryHistory as initialHistory } from "../../data/mockInventory";
 
 function toneFor(criticality) {
@@ -84,7 +84,7 @@ export default function InventoryView() {
               ))
             )}
           </div>
-          <div className="rounded-lg p-4" style={{ background: "rgba(232,160,61,0.08)", border: `1px solid ${colors.amberDim}` }}>
+          <div className="rounded-lg p-4" style={{ background: colors.amberBg, border: `1px solid ${colors.amberDim}` }}>
             <div className="flex items-center gap-2 mb-2">
               <TriangleAlert size={14} color={colors.amber} />
               <span className="text-sm font-semibold" style={{ color: colors.amber }}>
@@ -196,8 +196,8 @@ export default function InventoryView() {
               </button>
               <button
                 type="submit"
-                className="text-sm font-medium px-4 py-2 rounded"
-                style={{ color: form.direction === "add" ? "#081014" : "#fff", background: form.direction === "add" ? colors.aurora : colors.flare }}
+                className="text-sm font-medium px-4 py-2 rounded cursor-pointer"
+                style={{ color: "#fff", background: form.direction === "add" ? colors.aurora : colors.flare }}
               >
                 Confirm {form.direction === "add" ? "addition" : "removal"}
               </button>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { colors, font } from "./theme";
+import { ThemeProvider } from "./context/ThemeContext";
 import Sidebar from "./components/layout/Sidebar";
 import Header from "./components/layout/Header";
 import Overview from "./components/pages/Overview";
@@ -12,7 +13,7 @@ import Emergency from "./components/pages/Emergency";
 // This component only does two jobs:
 // 1. Keep track of which tab is active (`view`)
 // 2. Render the layout (sidebar + header) and drop the right view inside it
-export default function App() {
+function Dashboard() {
   const [view, setView] = useState("overview");
 
   const views = {
@@ -26,7 +27,7 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen w-full flex"
+      className="min-h-screen w-full flex transition-colors duration-200"
       style={{ background: colors.bg, ...font }}
     >
       <Sidebar view={view} setView={setView} />
@@ -35,5 +36,13 @@ export default function App() {
         <div className="flex-1 overflow-auto p-7">{views[view]}</div>
       </main>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <Dashboard />
+    </ThemeProvider>
   );
 }

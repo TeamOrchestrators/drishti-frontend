@@ -19,7 +19,7 @@ const Sidebar = ({view, setView}) => {
       <div className="px-5 py-5 flex items-center gap-2.5" style={{borderBottom: `1px solid ${colors.borderSoft}`}}>
         <div
           className="w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0"
-          style={{background: "rgba(99,196,214,0.12)", border: `1px solid ${colors.iceDim}`}}
+          style={{background: colors.iceBg, border: `1px solid ${colors.iceDim}`}}
         >
           <Snowflake size={16} color={colors.ice}/>
         </div>

@@ -60,7 +60,7 @@ const Emergency = () => {
       <div className="flex flex-col gap-4">
         {emergencies.map((e) => (
           <Panel key={e.id} style={{ padding: 0 }}>
-            <div className="p-5 flex flex-col gap-4" style={e.status === "Active" ? { background: "rgba(232,93,93,0.04)" } : {}}>
+            <div className="p-5 flex flex-col gap-4" style={e.status === "Active" ? { background: colors.flareBg } : {}}>
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1">

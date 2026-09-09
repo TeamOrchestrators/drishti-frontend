@@ -69,8 +69,8 @@ const Personnel = () => {
         right={
           <button
             onClick={() => { setForm(emptyForm); setModalOpen(true); }}
-            className="flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded"
-            style={{ color: "#081014", background: colors.ice }}
+            className="flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded cursor-pointer"
+            style={{ color: colors.iceButtonText, background: colors.ice }}
           >
             <Plus size={15} /> Assign personnel
           </button>
@@ -199,7 +199,7 @@ const Personnel = () => {
               <button type="button" onClick={() => setModalOpen(false)} className="text-sm px-4 py-2 rounded" style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}>
                 Cancel
               </button>
-              <button type="submit" className="text-sm font-medium px-4 py-2 rounded" style={{ color: "#081014", background: colors.ice }}>
+              <button type="submit" className="text-sm font-medium px-4 py-2 rounded cursor-pointer" style={{ color: colors.iceButtonText, background: colors.ice }}>
                 Assign
               </button>
             </div>

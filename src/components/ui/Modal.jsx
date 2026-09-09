@@ -5,8 +5,8 @@ import { colors } from "../../theme.js";
 const Modal = ({ title, onClose, children, width = 480 }) => {
     return (
         <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            style={{ background: "rgba(6,8,12,0.7)" }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-xs"
+            style={{ background: colors.modalOverlay }}
             onClick={onClose}
         >
             <div

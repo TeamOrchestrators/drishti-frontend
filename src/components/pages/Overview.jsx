@@ -44,10 +44,10 @@ const Overview = ({ go }) => {
           </div>
           <button
             onClick={() => go("emergency")}
-            className="text-sm font-medium px-3 py-1.5 rounded"
+            className="text-sm font-medium px-3 py-1.5 rounded cursor-pointer"
             style={{
-              color: colors.text,
-              background: "rgba(232,93,93,0.16)",
+              color: colors.flare,
+              background: colors.flareTint,
               border: `1px solid ${colors.flareDim}`,
             }}
           >
