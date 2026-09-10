@@ -2,9 +2,9 @@
 
 :root,
 [data-theme="dark"] {
-  --color-bg: #0A0E15;
+  --color-bg: #000000;
   --color-bg-raised: #10151F;
-  --color-panel: #12181F;
+  --color-panel: black;
   --color-panel-alt: #161D27;
   --color-border: #232B38;
   --color-border-soft: #1B222D;

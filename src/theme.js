@@ -26,7 +26,7 @@ const colors = {
 };
 
 const font = {
-  fontFamily: "'Inter', sans-serif",
+  fontFamily: "sans-serif",
 };
 
 const mono = {

@@ -12,7 +12,7 @@ import Bar from "../ui/Bar";
 import StatCard from "../ui/StatCard";
 import mockEmergencies from "../../data/mockEmergencies.js";
 import mockExpeditions from "../../data/mockExpeditions.js";
-import {mockPersonnels} from "../../data/mockPersonnels.js";
+import { personnel, personnel_movements, getStationName } from "../../data/mockPersonnels.js";
 import mockInventory from "../../data/mockInventory.js";
 import { mockVoyage } from "../../data/mockCargo.js";
 
@@ -69,8 +69,8 @@ const Overview = ({ go }) => {
         <StatCard
           icon={Users}
           label="Personnel in motion"
-          value="5"
-          sub="of 142 total station staff"
+          value={String(personnel_movements.filter((m) => m.status === "in_transit").length || personnel_movements.length)}
+          sub={`of ${personnel.length} total station staff`}
           tone="aurora"
         />
         <StatCard
@@ -136,31 +136,47 @@ const Overview = ({ go }) => {
           title="Personnel movement"
         >
           <div className="flex flex-col gap-3.5">
-            {mockPersonnels.slice(0, 4).map((p) => (
-              <div key={p.name} className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div
-                    className="text-sm font-medium truncate"
-                    style={{ color: colors.text }}
-                  >
-                    {p.name}
+            {personnel_movements.slice(0, 4).map((m) => {
+              const person = personnel.find((p) => p.id === m.personnel_id);
+              const displayName = person ? (person.full_name || person.name) : (m.personnel_name || m.name);
+              const fromStation = getStationName(m.origin_station_id) || m.from || "—";
+              const toStation = getStationName(m.destination_station_id) || m.to || "—";
+              const statusTone =
+                m.status === "waiting_for_weather" || m.status === "Waiting for weather" || m.status === "planned"
+                  ? "amber"
+                  : m.status === "arrived_safely" || m.status === "Arrived safely"
+                  ? "aurora"
+                  : "ice";
+              const statusLabel =
+                m.status === "in_transit"
+                  ? "In transit"
+                  : m.status === "planned"
+                  ? "Planned"
+                  : m.status === "waiting_for_weather"
+                  ? "Waiting for weather"
+                  : m.status === "arrived_safely"
+                  ? "Arrived safely"
+                  : m.status;
+
+              return (
+                <div key={m.id || displayName} className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div
+                      className="text-sm font-medium truncate"
+                      style={{ color: colors.text }}
+                    >
+                      {displayName}
+                    </div>
+                    <div className="text-xs truncate" style={{ color: colors.textMuted }}>
+                      {fromStation} → {toStation}
+                    </div>
                   </div>
-                  <div className="text-xs truncate" style={{ color: colors.textMuted }}>
-                    {p.from} → {p.to}
-                  </div>
+                  <Pill tone={statusTone}>
+                    {statusLabel}
+                  </Pill>
                 </div>
-                <Pill
-                  tone={
-                    p.status === "Waiting for weather" ? "amber"
-                    : p.status === "Arrived safely" ?
-                      "aurora"
-                    : "ice"
-                  }
-                >
-                  {p.status}
-                </Pill>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Panel>
       </div>

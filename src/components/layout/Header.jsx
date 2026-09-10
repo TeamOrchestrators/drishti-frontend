@@ -1,4 +1,4 @@
-import { colors, mono } from "../../theme.js";
+import {colors, font, mono} from "../../theme.js";
 import { Clock, Radio, Sun, Moon, Menu } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
@@ -47,8 +47,8 @@ const Header = ({ onMenuClick }) => {
         </div>
       </div>
       <div
-        className="flex items-center gap-2 sm:gap-4 md:gap-5 text-xs flex-shrink-0"
-        style={{ color: colors.textMuted, ...mono }}
+        className="flex items-center gap-2 sm:gap-4 md:gap-5 text-sm flex-shrink-0"
+        style={{ color: colors.textMuted, ...font }}
       >
         <span className="flex items-center gap-1.5">
           <Clock size={13} />

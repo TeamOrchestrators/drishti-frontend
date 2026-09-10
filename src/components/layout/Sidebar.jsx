@@ -1,12 +1,12 @@
 import { Boxes, Compass, Snowflake, TriangleAlert, Truck, Users, X } from "lucide-react";
 import mockExpeditions from "../../data/mockExpeditions.js";
-import { mockPersonnels } from "../../data/mockPersonnels.js";
+import { personnel } from "../../data/mockPersonnels.js";
 import { colors } from "../../theme.js";
 
 const Navigation = [
   { key: "overview", label: "Overview", icon: Compass },
   { key: "expeditions", label: "Expeditions", icon: Compass, badge: mockExpeditions.length },
-  { key: "personnel", label: "Personnel", icon: Users, badge: mockPersonnels.length },
+  { key: "personnel", label: "Personnel", icon: Users, badge: personnel.length },
   { key: "cargo", label: "Cargo & Logistics", icon: Truck },
   { key: "inventory", label: "Inventory", icon: Boxes, alert: 2 },
   { key: "emergency", label: "Emergency", icon: TriangleAlert, alert: 1 },
@@ -61,16 +61,19 @@ const Sidebar = ({ view, setView, mobileOpen, setMobileOpen }) => {
       style={{ borderBottom: `1px solid ${colors.borderSoft}` }}
     >
       <div className="flex items-center gap-2.5 min-w-0">
-        <div
-          className="w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0"
-          style={{ background: colors.iceBg, border: `1px solid ${colors.iceDim}` }}
-        >
-          <Snowflake size={16} color={colors.ice} />
+        {/*<div*/}
+        {/*  className="w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0"*/}
+        {/*  style={{ background: colors.iceBg, border: `1px solid ${colors.iceDim}` }}*/}
+        {/*>*/}
+        {/*  <Snowflake size={16} color={colors.ice} />*/}
+        {/*</div>*/}
+        <div>
+          <img class="w-40 h-auto" src={"src/assets/Black and White Modern Corporate Letter D Logo.png"}/>
         </div>
         <div className="min-w-0">
           <div className="text-sm font-semibold tracking-wide" style={{ color: colors.text }}>DRISHTI</div>
-          <div className="text-xs truncate" style={{ color: colors.textFaint }}>
-            Polar Operations
+          <div className="text-xs wrap" style={{ color: colors.textFaint }}>
+            Data Reporting & Intelligent Surveillance for High-impact Tracking Interface
           </div>
         </div>
       </div>

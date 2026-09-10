@@ -1,18 +1,13 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import { getInitialTheme, updateBodyBackground } from "../index.js";
 
 const ThemeContext = createContext();
 
 export function ThemeProvider({ children }) {
-  const [theme, setTheme] = useState(() => {
-    const saved = localStorage.getItem("drishti-theme");
-    if (saved === "light" || saved === "dark") {
-      return saved;
-    }
-    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-  });
+  const [theme, setTheme] = useState(getInitialTheme);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
+    updateBodyBackground(theme);
     localStorage.setItem("drishti-theme", theme);
   }, [theme]);
 
@@ -21,7 +16,7 @@ export function ThemeProvider({ children }) {
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, isDark: theme === "light" }}>
+    <ThemeContext.Provider value={{ theme, toggleTheme, isDark: theme === "dark" }}>
       {children}
     </ThemeContext.Provider>
   );
