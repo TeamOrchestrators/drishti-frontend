@@ -20,31 +20,33 @@ const Overview = ({ go }) => {
   const activeEmergency = mockEmergencies.find((e) => e.status === "Active");
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5 sm:gap-6">
       {activeEmergency && (
         <div
-          className="rounded-lg px-5 py-4 flex items-center gap-4"
+          className="rounded-lg px-4 sm:px-5 py-3.5 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4"
           style={{
             background: colors.flareBg,
             border: `1px solid ${colors.flareDim}`,
           }}
         >
-          <TriangleAlert size={18} color={colors.flare} strokeWidth={2} />
-          <div className="flex-1">
-            <span
-              className="text-sm font-semibold"
-              style={{ color: colors.flare }}
-            >
-              {activeEmergency.type}
-            </span>
-            <span className="text-sm ml-2" style={{ color: colors.textMuted }}>
-              {activeEmergency.location} · {activeEmergency.affected} people
-              affected · {activeEmergency.when}
-            </span>
+          <div className="flex items-start sm:items-center gap-3 min-w-0">
+            <TriangleAlert size={18} color={colors.flare} strokeWidth={2} className="flex-shrink-0 mt-0.5 sm:mt-0" />
+            <div className="min-w-0">
+              <span
+                className="text-sm font-semibold"
+                style={{ color: colors.flare }}
+              >
+                {activeEmergency.type}
+              </span>
+              <span className="text-xs sm:text-sm ml-2" style={{ color: colors.textMuted }}>
+                {activeEmergency.location} · {activeEmergency.affected} people
+                affected · {activeEmergency.when}
+              </span>
+            </div>
           </div>
           <button
             onClick={() => go("emergency")}
-            className="text-sm font-medium px-3 py-1.5 rounded cursor-pointer"
+            className="text-sm font-medium px-3 py-1.5 rounded cursor-pointer self-start sm:self-auto flex-shrink-0"
             style={{
               color: colors.flare,
               background: colors.flareTint,
@@ -56,7 +58,7 @@ const Overview = ({ go }) => {
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           icon={Compass}
           label="Active expeditions"
@@ -88,14 +90,14 @@ const Overview = ({ go }) => {
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-5">
-        <div className="col-span-2">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2">
           <Panel
             title="Active expeditions"
           >
             <div className="flex flex-col gap-4">
               {mockExpeditions.slice(0, 3).map((e) => (
-                <div key={e.id} className="flex items-center gap-4">
+                <div key={e.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 sm:pb-0" style={{ borderBottom: `1px solid ${colors.borderSoft}` }}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span
@@ -112,16 +114,18 @@ const Overview = ({ go }) => {
                       </span>
                     </div>
                     <span
-                      className="text-xs"
+                      className="text-xs block"
                       style={{ color: colors.textMuted }}
                     >
                       {e.route}
                     </span>
                   </div>
-                  <div className="w-28">
-                    <Bar value={e.readiness} tone={e.tone} />
+                  <div className="flex items-center gap-3 justify-between sm:justify-start">
+                    <div className="w-28 flex-1 sm:flex-none">
+                      <Bar value={e.readiness} tone={e.tone} />
+                    </div>
+                    <Pill tone={e.tone}>{e.status}</Pill>
                   </div>
-                  <Pill tone={e.tone}>{e.status}</Pill>
                 </div>
               ))}
             </div>
@@ -133,15 +137,15 @@ const Overview = ({ go }) => {
         >
           <div className="flex flex-col gap-3.5">
             {mockPersonnels.slice(0, 4).map((p) => (
-              <div key={p.name} className="flex items-center justify-between">
+              <div key={p.name} className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div
-                    className="text-sm font-medium"
+                    className="text-sm font-medium truncate"
                     style={{ color: colors.text }}
                   >
                     {p.name}
                   </div>
-                  <div className="text-xs" style={{ color: colors.textMuted }}>
+                  <div className="text-xs truncate" style={{ color: colors.textMuted }}>
                     {p.from} → {p.to}
                   </div>
                 </div>
@@ -161,7 +165,7 @@ const Overview = ({ go }) => {
         </Panel>
       </div>
 
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <Panel
           title="Critical inventory"
         >
@@ -170,19 +174,19 @@ const Overview = ({ go }) => {
               .filter((i) => i.criticality === "Critical")
               .map((i) => (
                 <div key={i.item}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm" style={{ color: colors.text }}>
+                  <div className="flex items-center justify-between mb-1.5 gap-2">
+                    <span className="text-sm truncate" style={{ color: colors.text }}>
                       {i.item}
                     </span>
                     <span
-                      className="text-sm"
+                      className="text-sm flex-shrink-0"
                       style={{ color: colors.flare, ...mono }}
                     >
                       {i.current} / {i.min} {i.unit}
                     </span>
                   </div>
                   <Bar value={(i.current / i.min) * 100} tone="flare" />
-                  <span className="text-xs" style={{ color: colors.textFaint }}>
+                  <span className="text-xs mt-1 block" style={{ color: colors.textFaint }}>
                     {i.station}
                   </span>
                 </div>
@@ -195,15 +199,15 @@ const Overview = ({ go }) => {
         >
           <div className="flex flex-col gap-4">
             {mockVoyage.map((v) => (
-              <div key={v.vessel} className="flex items-center justify-between">
-                <div>
+              <div key={v.vessel} className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
                   <div
-                    className="text-sm font-medium"
+                    className="text-sm font-medium truncate"
                     style={{ color: colors.text }}
                   >
                     {v.vessel}
                   </div>
-                  <div className="text-xs" style={{ color: colors.textMuted }}>
+                  <div className="text-xs truncate" style={{ color: colors.textMuted }}>
                     {v.route} · {v.cargo}
                   </div>
                 </div>

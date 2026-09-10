@@ -32,7 +32,7 @@ const mockCargo = [
         weight: "268 MT",
         dest: "Amundsen Station",
         priority: "Critical",
-        status: "In transit"
+        status: "Requested"
     },
     {
         id: "CG-2294",
@@ -41,7 +41,7 @@ const mockCargo = [
         weight: "2.1 MT",
         dest: "Sector 4 Depot",
         priority: "Critical",
-        status: "Waiting for flight"
+        status: "Requested"
     },
     {
         id: "CG-2298",
@@ -50,7 +50,7 @@ const mockCargo = [
         weight: "44 MT",
         dest: "Rothera",
         priority: "Standard",
-        status: "In transit"
+        status: "Requested"
     },
     {
         id: "CG-2301",
@@ -59,7 +59,7 @@ const mockCargo = [
         weight: "1.4 MT",
         dest: "Rothera",
         priority: "Standard",
-        status: "Delivered"
+        status: "Requested"
     },
 ]
 

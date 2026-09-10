@@ -52,7 +52,6 @@ export default function InventoryView() {
         station: activeItem.station,
         change: delta,
         reason: form.reason || (form.direction === "add" ? "Stock added" : "Stock consumed"),
-        when: new Date().toISOString().slice(0, 10),
       },
       ...list,
     ]);
@@ -65,7 +64,7 @@ export default function InventoryView() {
       <SectionHeading>Station inventory</SectionHeading>
 
       {(lowStockAlerts.length > 0 || criticalStockAlerts.length > 0) && (
-        <div className="grid grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
           <div className="rounded-lg p-4" style={{ background: colors.flareBg, border: `1px solid ${colors.flareDim}` }}>
             <div className="flex items-center gap-2 mb-2">
               <TriangleAlert size={14} color={colors.flare} />
@@ -77,9 +76,9 @@ export default function InventoryView() {
               <span className="text-xs" style={{ color: colors.textFaint }}>Nothing critical right now.</span>
             ) : (
               criticalStockAlerts.map((i) => (
-                <div key={i.id} className="text-xs flex justify-between py-0.5" style={{ color: colors.textMuted }}>
-                  <span>{i.item} — {i.station}</span>
-                  <span style={{ ...mono }}>{i.current} / {i.min} {i.unit}</span>
+                <div key={i.id} className="text-xs flex items-center justify-between py-1 gap-2" style={{ color: colors.textMuted }}>
+                  <span className="truncate">{i.item} — {i.station}</span>
+                  <span className="flex-shrink-0" style={{ ...mono }}>{i.current} / {i.min} {i.unit}</span>
                 </div>
               ))
             )}
@@ -95,9 +94,9 @@ export default function InventoryView() {
               <span className="text-xs" style={{ color: colors.textFaint }}>Everything else is above the minimum.</span>
             ) : (
               lowStockAlerts.map((i) => (
-                <div key={i.id} className="text-xs flex justify-between py-0.5" style={{ color: colors.textMuted }}>
-                  <span>{i.item} — {i.station}</span>
-                  <span style={{ ...mono }}>{i.current} / {i.min} {i.unit}</span>
+                <div key={i.id} className="text-xs flex items-center justify-between py-1 gap-2" style={{ color: colors.textMuted }}>
+                  <span className="truncate">{i.item} — {i.station}</span>
+                  <span className="flex-shrink-0" style={{ ...mono }}>{i.current} / {i.min} {i.unit}</span>
                 </div>
               ))
             )}
@@ -105,16 +104,16 @@ export default function InventoryView() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
         {inventory.map((i) => {
           const pct = Math.min(100, (i.current / i.max) * 100);
           const tone = toneFor(i.criticality);
           return (
             <Panel key={i.id}>
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="text-sm font-medium" style={{ color: colors.text }}>{i.item}</div>
-                  <div className="text-xs" style={{ color: colors.textFaint }}>{i.station}</div>
+              <div className="flex items-start justify-between mb-3 gap-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate" style={{ color: colors.text }}>{i.item}</div>
+                  <div className="text-xs truncate" style={{ color: colors.textFaint }}>{i.station}</div>
                 </div>
                 <Pill tone={tone}>{i.criticality}</Pill>
               </div>
@@ -126,14 +125,14 @@ export default function InventoryView() {
               <div className="flex items-center gap-2 mt-4">
                 <button
                   onClick={() => openAdjust(i, "add")}
-                  className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium py-2 rounded"
+                  className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium py-2 rounded cursor-pointer"
                   style={{ color: colors.aurora, border: `1px solid ${colors.auroraDim}` }}
                 >
                   <Plus size={12} /> Add stock
                 </button>
                 <button
                   onClick={() => openAdjust(i, "remove")}
-                  className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium py-2 rounded"
+                  className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium py-2 rounded cursor-pointer"
                   style={{ color: colors.flare, border: `1px solid ${colors.flareDim}` }}
                 >
                   <Minus size={12} /> Remove stock
@@ -147,14 +146,14 @@ export default function InventoryView() {
       <Panel title="Inventory history" action={<History size={15} color={colors.textFaint} />}>
         <div className="flex flex-col gap-3">
           {history.map((h, idx) => (
-            <div key={idx} className="flex items-center justify-between text-sm">
+            <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-3 text-sm pb-2 sm:pb-0" style={{ borderBottom: `1px solid ${colors.borderSoft}` }}>
               <div>
                 <span style={{ color: colors.text }}>{h.item}</span>
                 <span style={{ color: colors.textFaint }}> · </span>
                 <span style={{ color: colors.textMuted }}>{h.station}</span>
                 <span style={{ color: colors.textFaint }}> — {h.reason}</span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 justify-between sm:justify-start">
                 <span style={{ color: colors.textFaint, ...mono, fontSize: 12 }}>{h.when}</span>
                 <span
                   className="text-xs font-medium"

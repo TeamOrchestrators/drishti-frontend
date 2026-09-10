@@ -80,41 +80,43 @@ const Personnel = () => {
       </SectionHeading>
 
       <Panel title="Current movements">
-        <table className="w-full text-sm border-collapse">
-          <thead>
-          <tr style={{ color: colors.textFaint }}>
-            {["Personnel", "Role", "Current station", "From → To", "Departure", "Arrival", "Status"].map((h) => (
-              <th key={h} className="text-left font-medium pb-3 text-xs">{h}</th>
-            ))}
-          </tr>
-          </thead>
-          <tbody>
-          {personnel.map((p, i) => (
-            <tr key={p.name + i} style={{ borderTop: `1px solid ${colors.borderSoft}` }}>
-              <td className="py-3.5" style={{ color: colors.text, fontWeight: 500 }}>{p.name}</td>
-              <td className="py-3.5" style={{ color: colors.textMuted }}>{p.role}</td>
-              <td className="py-3.5" style={{ color: colors.textMuted }}>{p.currentStation}</td>
-              <td className="py-3.5" style={{ color: colors.textMuted, ...mono, fontSize: 13 }}>{p.from} → {p.to}</td>
-              <td className="py-3.5" style={{ color: colors.textMuted, ...mono, fontSize: 12 }}>{p.departure}</td>
-              <td className="py-3.5" style={{ color: colors.textMuted, ...mono, fontSize: 12 }}>{p.arrival}</td>
-              <td className="py-3.5"><Pill tone={statusTone(p.status)}>{p.status}</Pill></td>
+        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+          <table className="w-full text-sm border-collapse min-w-[640px]">
+            <thead>
+            <tr style={{ color: colors.textFaint }}>
+              {["Personnel", "Role", "Current station", "From → To", "Departure", "Arrival", "Status"].map((h) => (
+                <th key={h} className="text-left font-medium pb-3 text-xs whitespace-nowrap">{h}</th>
+              ))}
             </tr>
-          ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+            {personnel.map((p, i) => (
+              <tr key={p.name + i} style={{ borderTop: `1px solid ${colors.borderSoft}` }}>
+                <td className="py-3.5 whitespace-nowrap" style={{ color: colors.text, fontWeight: 500 }}>{p.name}</td>
+                <td className="py-3.5 whitespace-nowrap" style={{ color: colors.textMuted }}>{p.role}</td>
+                <td className="py-3.5 whitespace-nowrap" style={{ color: colors.textMuted }}>{p.currentStation}</td>
+                <td className="py-3.5 whitespace-nowrap" style={{ color: colors.textMuted, ...mono, fontSize: 13 }}>{p.from} → {p.to}</td>
+                <td className="py-3.5 whitespace-nowrap" style={{ color: colors.textMuted, ...mono, fontSize: 12 }}>{p.departure}</td>
+                <td className="py-3.5 whitespace-nowrap" style={{ color: colors.textMuted, ...mono, fontSize: 12 }}>{p.arrival}</td>
+                <td className="py-3.5 whitespace-nowrap"><Pill tone={statusTone(p.status)}>{p.status}</Pill></td>
+              </tr>
+            ))}
+            </tbody>
+          </table>
+        </div>
       </Panel>
 
       <Panel
         title={`Total Personnels - ${mockAllPersonnels.length}`}
         action={
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded" style={{ background: colors.bgRaised, border: `1px solid ${colors.border}` }}>
-            <Search size={13} color={colors.textFaint} />
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded w-full sm:w-auto" style={{ background: colors.bgRaised, border: `1px solid ${colors.border}` }}>
+            <Search size={13} color={colors.textFaint} className="flex-shrink-0" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search name, role, station..."
-              className="text-xs outline-none bg-transparent"
-              style={{ color: colors.text, width: 190 }}
+              className="text-xs outline-none bg-transparent w-full sm:w-48"
+              style={{ color: colors.text }}
             />
           </div>
         }
@@ -123,22 +125,22 @@ const Personnel = () => {
           {filteredRoster.map((p) => {
             const busy = busyNames.has(p.name);
             return (
-              <div key={p.id} className="flex items-center justify-between py-2.5" style={{ borderBottom: `1px solid ${colors.borderSoft}` }}>
+              <div key={p.id} className="flex items-center justify-between py-2.5 gap-2" style={{ borderBottom: `1px solid ${colors.borderSoft}` }}>
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="min-w-0">
-                    <div className="text-sm font-medium" style={{ color: colors.text }}>{p.name}</div>
-                    <div className="text-xs" style={{ color: colors.textMuted }}>{p.role} · {p.currentStation}</div>
+                    <div className="text-sm font-medium truncate" style={{ color: colors.text }}>{p.name}</div>
+                    <div className="text-xs truncate" style={{ color: colors.textMuted }}>{p.role} · {p.currentStation}</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
                   <Pill tone={busy ? "amber" : "aurora"}>{busy ? "On a movement" : "Available"}</Pill>
                   {busy === false && (
                     <button
                       onClick={() => openAssign(p)}
-                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded"
+                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded cursor-pointer"
                       style={{ color: colors.ice, border: `1px solid ${colors.iceDim}` }}
                     >
-                      <UserCheck size={12} /> Assign
+                      <UserCheck size={12} /> <span className="hidden xs:inline sm:inline">Assign</span>
                     </button>
                   )}
                 </div>
@@ -155,13 +157,13 @@ const Personnel = () => {
         <div className="flex flex-col gap-3.5">
           {mockPersonnels.map((h, i) =>
             h.status === "Arrived safely" && (
-              <div key={i} className="flex items-center justify-between text-sm">
+              <div key={i} className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-3 text-sm pb-2.5 sm:pb-0" style={{ borderBottom: `1px solid ${colors.borderSoft}` }}>
                 <div>
                   <span style={{ color: colors.text }}>{h.name}</span>
                   <span style={{ color: colors.textFaint }}> · </span>
                   <span style={{ color: colors.textMuted }}>{h.from} → {h.to}</span>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 justify-between sm:justify-start">
                   <span style={{ color: colors.textFaint, ...mono, fontSize: 12 }}>{h.departure} → {h.arrival}</span>
                   <Pill tone="muted">{h.status}</Pill>
                 </div>
@@ -182,21 +184,21 @@ const Personnel = () => {
               onChange={handleNameSelect}
               required
             />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField label="Role" value={form.role} onChange={set("role")} />
               <FormField label="Current station" value={form.currentStation} onChange={set("currentStation")} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField label="From" value={form.from} onChange={set("from")} required />
               <FormField label="To" value={form.to} onChange={set("to")} required />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField label="Departure date" type="date" value={form.departure} onChange={set("departure")} />
               <FormField label="Arrival date" type="date" value={form.arrival} onChange={set("arrival")} />
             </div>
             <FormField label="Movement status" as="select" options={statusOptions} value={form.status} onChange={set("status")} />
             <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setModalOpen(false)} className="text-sm px-4 py-2 rounded" style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}>
+              <button type="button" onClick={() => setModalOpen(false)} className="text-sm px-4 py-2 rounded cursor-pointer" style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}>
                 Cancel
               </button>
               <button type="submit" className="text-sm font-medium px-4 py-2 rounded cursor-pointer" style={{ color: colors.iceButtonText, background: colors.ice }}>

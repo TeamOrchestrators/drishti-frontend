@@ -47,7 +47,7 @@ const Emergency = () => {
         right={
           <button
             onClick={() => setModalOpen(true)}
-            className="flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded"
+            className="flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded cursor-pointer"
             style={{ color: "#fff", background: colors.flare }}
           >
             <TriangleAlert size={15} /> Report emergency
@@ -60,23 +60,23 @@ const Emergency = () => {
       <div className="flex flex-col gap-4">
         {emergencies.map((e) => (
           <Panel key={e.id} style={{ padding: 0 }}>
-            <div className="p-5 flex flex-col gap-4" style={e.status === "Active" ? { background: colors.flareBg } : {}}>
-              <div className="flex items-start justify-between">
+            <div className="p-4 sm:p-5 flex flex-col gap-4" style={e.status === "Active" ? { background: colors.flareBg } : {}}>
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                 <div>
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="text-base font-semibold" style={{ color: colors.text }}>{e.type}</span>
                     <span className="text-xs" style={{ color: colors.textFaint, ...mono }}>{e.id}</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-sm" style={{ color: colors.textMuted }}>
-                    <MapPin size={13} /> {e.location}
+                    <MapPin size={13} className="flex-shrink-0" /> {e.location}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 self-start sm:self-auto flex-shrink-0">
                   <Pill tone={e.status === "Active" ? "flare" : "aurora"}>{e.status}</Pill>
                   {e.status === "Active" && (
                     <button
                       onClick={() => resolve(e.id)}
-                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded"
+                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded cursor-pointer"
                       style={{ color: colors.aurora, border: `1px solid ${colors.auroraDim}` }}
                     >
                       <CheckCircle2 size={12} /> Mark resolved
@@ -84,7 +84,7 @@ const Emergency = () => {
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-4 gap-6 pt-3" style={{ borderTop: `1px solid ${colors.borderSoft}` }}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-3" style={{ borderTop: `1px solid ${colors.borderSoft}` }}>
                 <div>
                   <div className="text-xs mb-1" style={{ color: colors.textFaint }}>Severity</div>
                   <div className="text-sm" style={{ color: e.severity?.includes("Immediate") || e.severity?.includes("Extremely") ? colors.flare : colors.amber }}>
@@ -118,10 +118,10 @@ const Emergency = () => {
             <FormField label="People affected" type="number" value={form.affected} onChange={set("affected")} />
             <FormField label="Resources required" as="textarea" value={form.resources} onChange={set("resources")} placeholder="e.g. Medical kit, extra vehicle" />
             <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setModalOpen(false)} className="text-sm px-4 py-2 rounded" style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}>
+              <button type="button" onClick={() => setModalOpen(false)} className="text-sm px-4 py-2 rounded cursor-pointer" style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}>
                 Cancel
               </button>
-              <button type="submit" className="text-sm font-medium px-4 py-2 rounded" style={{ color: "#fff", background: colors.flare }}>
+              <button type="submit" className="text-sm font-medium px-4 py-2 rounded cursor-pointer" style={{ color: "#fff", background: colors.flare }}>
                 Submit report
               </button>
             </div>

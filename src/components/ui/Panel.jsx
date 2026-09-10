@@ -12,7 +12,7 @@ const Panel = ({ title, action, children, style }) => {
     >
       {title && (
         <div
-          className="flex items-center justify-center px-5 py-4"
+          className="flex items-center justify-between flex-wrap gap-2 px-4 sm:px-5 py-3.5 sm:py-4"
           style={{ borderBottom: `1px solid ${colors.borderSoft}` }}
         >
           <h3
@@ -24,7 +24,7 @@ const Panel = ({ title, action, children, style }) => {
           {action}
         </div>
       )}
-      <div className="p-5">{children}</div>
+      <div className="p-4 sm:p-5">{children}</div>
     </div>
   );
 };

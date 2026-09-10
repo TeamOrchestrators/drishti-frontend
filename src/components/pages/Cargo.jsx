@@ -64,54 +64,56 @@ const Cargo = () => {
       </SectionHeading>
 
       <Panel title="Cargo requests">
-        <table className="w-full text-sm border-collapse">
-          <thead>
-          <tr style={{ color: colors.textFaint }}>
-            {["ID", "Item", "Qty", "Weight", "Volume", "Source → Destination", "Priority", "Voyage", "Status", ""].map((h) => (
-              <th key={h} className="text-left font-medium pb-3 text-xs">{h}</th>
-            ))}
-          </tr>
-          </thead>
-          <tbody>
-          {cargo.map((c) => (
-            <tr key={c.id} style={{ borderTop: `1px solid ${colors.borderSoft}` }}>
-              <td className="py-3" style={{ color: colors.textFaint, ...mono, fontSize: 12 }}>{c.id}</td>
-              <td className="py-3" style={{ color: colors.text }}>{c.item}</td>
-              <td className="py-3" style={{ color: colors.textMuted, ...mono, fontSize: 13 }}>{c.qty}</td>
-              <td className="py-3" style={{ color: colors.textMuted, ...mono, fontSize: 13 }}>{c.weight}</td>
-              <td className="py-3" style={{ color: colors.textMuted, ...mono, fontSize: 13 }}>{c.volume}</td>
-              <td className="py-3" style={{ color: colors.textMuted, fontSize: 13 }}>{c.source} → {c.dest}</td>
-              <td className="py-3"><Pill tone={c.priority === "Critical" ? "flare" : "muted"}>{c.priority}</Pill></td>
-              <td className="py-3">
-                <select
-                  value={c.voyage || ""}
-                  onChange={(ev) => assignVoyage(c.id, ev.target.value)}
-                  disabled={c.status === "Delivered"}
-                  className="text-xs rounded px-2 py-1"
-                  style={{ background: colors.bgRaised, color: colors.text, border: `1px solid ${colors.border}` }}
-                >
-                  <option value="">Unassigned</option>
-                  {mockVoyage.map((v) => (
-                    <option key={v.vessel} value={v.vessel}>{v.vessel}</option>
-                  ))}
-                </select>
-              </td>
-              <td className="py-3"><Pill tone={cargoStatusTone(c.status)}>{c.status}</Pill></td>
-              <td className="py-3">
-                {c.status === "In transit" && (
-                  <button
-                    onClick={() => markReceived(c.id)}
-                    className="flex items-center gap-1 text-xs px-2 py-1 rounded"
-                    style={{ color: colors.aurora, border: `1px solid ${colors.auroraDim}` }}
-                  >
-                    <PackageCheck size={12} /> Receive
-                  </button>
-                )}
-              </td>
+        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+          <table className="w-full text-sm border-collapse min-w-[760px]">
+            <thead>
+            <tr style={{ color: colors.textFaint }}>
+              {["ID", "Item", "Qty", "Weight", "Volume", "Source → Destination", "Priority", "Voyage", "Status", ""].map((h) => (
+                <th key={h} className="text-left font-medium pb-3 text-xs whitespace-nowrap">{h}</th>
+              ))}
             </tr>
-          ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+            {cargo.map((c) => (
+              <tr key={c.id} style={{ borderTop: `1px solid ${colors.borderSoft}` }}>
+                <td className="py-3 whitespace-nowrap" style={{ color: colors.textFaint, ...mono, fontSize: 12 }}>{c.id}</td>
+                <td className="py-3 whitespace-nowrap" style={{ color: colors.text }}>{c.item}</td>
+                <td className="py-3 whitespace-nowrap" style={{ color: colors.textMuted, ...mono, fontSize: 13 }}>{c.qty}</td>
+                <td className="py-3 whitespace-nowrap" style={{ color: colors.textMuted, ...mono, fontSize: 13 }}>{c.weight}</td>
+                <td className="py-3 whitespace-nowrap" style={{ color: colors.textMuted, ...mono, fontSize: 13 }}>{c.volume}</td>
+                <td className="py-3 whitespace-nowrap" style={{ color: colors.textMuted, fontSize: 13 }}>{c.source} → {c.dest}</td>
+                <td className="py-3 whitespace-nowrap"><Pill tone={c.priority === "Critical" ? "flare" : "muted"}>{c.priority}</Pill></td>
+                <td className="py-3 whitespace-nowrap">
+                  <select
+                    value={c.voyage || ""}
+                    onChange={(ev) => assignVoyage(c.id, ev.target.value)}
+                    disabled={c.status === "Delivered"}
+                    className="text-xs rounded px-2 py-1"
+                    style={{ background: colors.bgRaised, color: colors.text, border: `1px solid ${colors.border}` }}
+                  >
+                    <option value="">Unassigned</option>
+                    {mockVoyage.map((v) => (
+                      <option key={v.vessel} value={v.vessel}>{v.vessel}</option>
+                    ))}
+                  </select>
+                </td>
+                <td className="py-3 whitespace-nowrap"><Pill tone={cargoStatusTone(c.status)}>{c.status}</Pill></td>
+                <td className="py-3 whitespace-nowrap">
+                  {c.status === "In transit" && (
+                    <button
+                      onClick={() => markReceived(c.id)}
+                      className="flex items-center gap-1 text-xs px-2 py-1 rounded cursor-pointer"
+                      style={{ color: colors.aurora, border: `1px solid ${colors.auroraDim}` }}
+                    >
+                      <PackageCheck size={12} /> Receive
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            </tbody>
+          </table>
+        </div>
       </Panel>
 
       <Panel title="Ships & planes">
@@ -120,23 +122,27 @@ const Cargo = () => {
             const assigned = cargo.filter((c) => c.voyage === v.vessel);
             return (
               <div key={v.vessel} className="flex flex-col gap-2.5" style={{ borderBottom: `1px solid ${colors.borderSoft}`, paddingBottom: 16 }}>
-                <div className="flex items-center gap-4">
-                  <Truck size={16} color={v.status === "Grounded" ? colors.flare : colors.ice} />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium" style={{ color: colors.text }}>{v.vessel}</span>
-                      <span className="text-xs" style={{ color: colors.textFaint }}>{v.type}</span>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <Truck size={16} color={v.status === "Grounded" ? colors.flare : colors.ice} className="flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium" style={{ color: colors.text }}>{v.vessel}</span>
+                        <span className="text-xs" style={{ color: colors.textFaint }}>{v.type}</span>
+                      </div>
+                      <span className="text-xs" style={{ color: colors.textMuted }}>
+                        {v.route} · departs {v.departure} · {v.cargo} cargo
+                      </span>
                     </div>
-                    <span className="text-xs" style={{ color: colors.textMuted }}>
-                      {v.route} · departs {v.departure} · {v.cargo} cargo
-                    </span>
                   </div>
-                  <Pill tone={v.status === "Grounded" ? "flare" : "ice"}>
-                    {v.status === "Grounded" ? v.status : `ETA ${v.eta}`}
-                  </Pill>
+                  <div className="self-start sm:self-auto flex-shrink-0">
+                    <Pill tone={v.status === "Grounded" ? "flare" : "ice"}>
+                      {v.status === "Grounded" ? v.status : `${v.status}`}
+                    </Pill>
+                  </div>
                 </div>
                 {assigned.length > 0 && (
-                  <div className="ml-8 flex flex-wrap gap-2">
+                  <div className="sm:ml-7 flex flex-wrap gap-2">
                     {assigned.map((c) => (
                       <span key={c.id} className="text-xs px-2 py-1 rounded" style={{ background: colors.panelAlt, color: colors.textMuted, border: `1px solid ${colors.border}` }}>
                         {c.item} → {c.dest}
@@ -154,20 +160,20 @@ const Cargo = () => {
         <Modal title="New cargo indent" onClose={() => setModalOpen(false)}>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <FormField label="Item" value={form.item} onChange={set("item")} required />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField label="Quantity" value={form.qty} onChange={set("qty")} placeholder="e.g. 20 boxes" required />
               <FormField label="Weight" value={form.weight} onChange={set("weight")} placeholder="e.g. 5 MT" required />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField label="Volume" value={form.volume} onChange={set("volume")} placeholder="e.g. 10 m³" />
               <FormField label="Priority" as="select" options={priorityOptions} value={form.priority} onChange={set("priority")} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField label="Source" value={form.source} onChange={set("source")} required />
               <FormField label="Destination" value={form.dest} onChange={set("dest")} required />
             </div>
             <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setModalOpen(false)} className="text-sm px-4 py-2 rounded" style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}>
+              <button type="button" onClick={() => setModalOpen(false)} className="text-sm px-4 py-2 rounded cursor-pointer" style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}>
                 Cancel
               </button>
               <button type="submit" className="text-sm font-medium px-4 py-2 rounded cursor-pointer" style={{ color: colors.iceButtonText, background: colors.ice }}>

@@ -1,9 +1,9 @@
 import { colors, mono } from "../../theme.js";
-import { Clock, Radio, Sun, Moon } from "lucide-react";
+import { Clock, Radio, Sun, Moon, Menu } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
 
-const Header = () => {
+const Header = ({ onMenuClick }) => {
   const [time, setTime] = useState(new Date());
   const { theme, toggleTheme, isDark } = useTheme();
 
@@ -21,28 +21,42 @@ const Header = () => {
 
   return (
     <header
-      className="flex items-center justify-between px-7 py-4 transition-colors"
+      className="flex items-center justify-between px-4 sm:px-7 py-3 sm:py-4 transition-colors gap-3"
       style={{ borderBottom: `1px solid ${colors.border}` }}
     >
-      <div>
-        <div className="text-sm font-semibold" style={{ color: colors.text }}>
-          Bharati
-        </div>
-        <div className="text-xs" style={{ color: colors.textFaint }}>
-          Research & Operations center in Antarctica
+      <div className="flex items-center gap-3 min-w-0">
+        <button
+          onClick={onMenuClick}
+          className="md:hidden p-1.5 rounded-md cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0"
+          style={{
+            color: colors.text,
+            background: colors.panelAlt,
+            border: `1px solid ${colors.border}`,
+          }}
+          aria-label="Open navigation menu"
+        >
+          <Menu size={18} />
+        </button>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold truncate" style={{ color: colors.text }}>
+            Bharati
+          </div>
+          <div className="text-xs truncate hidden sm:block" style={{ color: colors.textFaint }}>
+            Research & Operations center in Antarctica
+          </div>
         </div>
       </div>
       <div
-        className="flex items-center gap-5 text-xs"
+        className="flex items-center gap-2 sm:gap-4 md:gap-5 text-xs flex-shrink-0"
         style={{ color: colors.textMuted, ...mono }}
       >
         <span className="flex items-center gap-1.5">
           <Clock size={13} />
           {antarcticaString}
         </span>
-        <span>-42°C</span>
-        <span>Wind 38 mph</span>
-        <span className="flex items-center gap-1.5">
+        <span className="hidden sm:inline">-42°C</span>
+        <span className="hidden md:inline">Wind 38 mph</span>
+        <span className="hidden lg:flex items-center gap-1.5">
           <Radio size={13} color={colors.aurora} /> All systems normal
         </span>
 
@@ -51,7 +65,7 @@ const Header = () => {
           onClick={toggleTheme}
           title={`Switch to ${isDark ? "light" : "dark"} mode`}
           aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full cursor-pointer transition-all hover:opacity-90 active:scale-95"
+          className="flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-full cursor-pointer transition-all hover:opacity-90 active:scale-95"
           style={{
             background: "transparent",
             color: colors.text,
@@ -59,12 +73,8 @@ const Header = () => {
           }}
         >
           {isDark ?
-            <>
-              <Sun size={15} color={colors.amber} />
-            </>
-          : <>
-              <Moon size={15} color={colors.ice} />
-            </>
+            <Sun size={15} color={colors.amber} />
+          : <Moon size={15} color={colors.ice} />
           }
         </button>
       </div>

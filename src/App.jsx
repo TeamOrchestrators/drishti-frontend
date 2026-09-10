@@ -15,6 +15,7 @@ import Emergency from "./components/pages/Emergency";
 // 2. Render the layout (sidebar + header) and drop the right view inside it
 function Dashboard() {
   const [view, setView] = useState("overview");
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const views = {
     overview: <Overview go={setView} />,
@@ -30,10 +31,15 @@ function Dashboard() {
       className="min-h-screen w-full flex transition-colors duration-200"
       style={{ background: colors.bg, ...font }}
     >
-      <Sidebar view={view} setView={setView} />
+      <Sidebar
+        view={view}
+        setView={setView}
+        mobileOpen={mobileOpen}
+        setMobileOpen={setMobileOpen}
+      />
       <main className="flex-1 flex flex-col min-w-0">
-        <Header />
-        <div className="flex-1 overflow-auto p-7">{views[view]}</div>
+        <Header onMenuClick={() => setMobileOpen(true)} />
+        <div className="flex-1 overflow-auto p-4 sm:p-6 md:p-7">{views[view]}</div>
       </main>
     </div>
   );
