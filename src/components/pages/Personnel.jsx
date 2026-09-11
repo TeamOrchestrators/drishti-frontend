@@ -23,8 +23,32 @@ function statusTone(status) {
   if (!status) return "ice";
   const s = String(status).toLowerCase();
   if (s === "waiting_for_weather" || s === "planned") return "amber";
-  if (s === "arrived_safely" || s === "cleared" || s === "completed") return "aurora";
+  if (s === "arrived_safely" || s === "cleared" || s === "completed" || s === "available" || s === "active") return "aurora";
+  if (s === "on_leave" || s === "leave" || s === "inactive" || s === "off_duty") return "muted";
   return "ice";
+}
+
+function getPersonnelStatus(p, isBusy) {
+  if (isBusy) {
+    return { label: "On a movement", tone: "amber" };
+  }
+  const raw = String(p.status || p.duty_status || p.assignment_status || "").trim().toLowerCase();
+  if (raw === "assigned" || raw === "on_duty" || Boolean(p.is_assigned)) {
+    return { label: "Assigned", tone: "ice" };
+  }
+  if (raw === "on_leave" || raw === "leave") {
+    return { label: "On leave", tone: "muted" };
+  }
+  if (raw === "inactive" || raw === "off_duty") {
+    return { label: "Inactive", tone: "muted" };
+  }
+  if (raw === "medical_hold" || raw === "hold") {
+    return { label: "Medical hold", tone: "flare" };
+  }
+  if (raw === "available" || raw === "active" || !raw) {
+    return { label: "Available", tone: "aurora" };
+  }
+  return { label: formatStatus(raw), tone: statusTone(raw) };
 }
 
 function formatDisplayDateTime(d) {
@@ -166,14 +190,62 @@ const Personnel = () => {
     }
   };
 
-  // Personnel dropdown options from API formOptions or live store
+  // Busy personnel ids and names (currently on an active movement)
+  const busyPersonIds = useMemo(() => {
+    return new Set(
+      movingPersonnel
+        .filter((m) => {
+          const s = (m.movement_status || m.status || "").toLowerCase();
+          return s === "in_transit" || s === "waiting_for_weather" || s === "planned";
+        })
+        .map((m) => m.personnel_id || m.personnelId || m.person_id)
+        .filter(Boolean)
+    );
+  }, [movingPersonnel]);
+
+  const busyPersonNames = useMemo(() => {
+    return new Set(
+      movingPersonnel
+        .filter((m) => {
+          const s = (m.movement_status || m.status || "").toLowerCase();
+          return s === "in_transit" || s === "waiting_for_weather" || s === "planned";
+        })
+        .map((m) => m.personnel_name || m.full_name || m.name)
+        .filter(Boolean)
+    );
+  }, [movingPersonnel]);
+
+  // Personnel dropdown options: provides the full roster so all staff can be selected for assignment
   const personnelDropdownOptions = useMemo(() => {
-    const list = formOptions.personnel?.length > 0 ? formOptions.personnel : totalPersonnel;
-    return list.map((p) => ({
-      value: p.id,
-      label: `${p.full_name || p.name} (${p.role || p.personnel_code || "Personnel"})`,
-    }));
-  }, [formOptions.personnel, totalPersonnel]);
+    const map = new Map();
+    (totalPersonnel || []).forEach((p) => {
+      if (p && p.id) map.set(p.id, p);
+    });
+    (formOptions.personnel || []).forEach((p) => {
+      if (p && p.id && !map.has(p.id)) map.set(p.id, p);
+    });
+
+    const allList = Array.from(map.values());
+
+    return allList.map((p) => {
+      const personName = p.full_name || p.name || "Personnel";
+      const isBusy = busyPersonIds.has(p.id) || busyPersonNames.has(personName);
+      const rawStatus = String(p.status || p.duty_status || p.assignment_status || "").trim().toLowerCase();
+      const isAssigned = rawStatus === "assigned" || Boolean(p.is_assigned);
+
+      let statusTag = "";
+      if (isBusy) {
+        statusTag = " · In motion";
+      } else if (isAssigned) {
+        statusTag = " · Assigned";
+      }
+
+      return {
+        value: p.id,
+        label: `${personName} (${p.role || p.personnel_code || "Personnel"})${statusTag}`,
+      };
+    });
+  }, [formOptions.personnel, totalPersonnel, busyPersonIds, busyPersonNames]);
 
   // Movement status options directly from API formOptions
   const movementStatusOptions = useMemo(() => {
@@ -206,18 +278,6 @@ const Personnel = () => {
       };
     });
   }, [formOptions]);
-
-  // Busy personnel ids (currently on an active movement)
-  const busyPersonIds = useMemo(() => {
-    return new Set(
-      movingPersonnel
-        .filter((m) => {
-          const s = (m.movement_status || m.status || "").toLowerCase();
-          return s === "in_transit" || s === "waiting_for_weather" || s === "planned";
-        })
-        .map((m) => m.personnel_id || m.id)
-    );
-  }, [movingPersonnel]);
 
   // Filtered roster based on search input
   const filteredRoster = useMemo(() => {
@@ -451,7 +511,8 @@ const Personnel = () => {
             <>
               {filteredRoster.map((p) => {
                 const personName = p.full_name || p.name;
-                const busy = busyPersonIds.has(p.id) || busyPersonIds.has(personName);
+                const isBusy = busyPersonIds.has(p.id) || busyPersonNames.has(personName);
+                const statusInfo = getPersonnelStatus(p, isBusy);
                 const stationName = p.current_station_name || resolveStation(p.current_station_id) || "Station Unassigned";
                 const code = p.personnel_code || (p.id ? p.id.slice(0, 8) : "STAFF");
 
@@ -475,7 +536,7 @@ const Personnel = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-                      <Pill tone={busy ? "amber" : "aurora"}>{busy ? "On a movement" : "Available"}</Pill>
+                      <Pill tone={statusInfo.tone}>{statusInfo.label}</Pill>
                     </div>
                   </div>
                 );

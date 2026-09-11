@@ -26,8 +26,8 @@ import { useInventoryStore } from "../../store/useInventoryStore";
 const emptyItemForm = {
   item_code: "",
   name: "",
-  category: "Medical",
-  unit: "tanks",
+  category: "",
+  unit: "",
   is_critical: false,
   opening_quantity: "",
   minimum_quantity: "",
@@ -133,10 +133,7 @@ export default function InventoryView() {
   // 3. Add Item modal handler: POST /api/inventory/items?station_id={bhartiStationId}
   function openAddItemModal() {
     setItemFormError(null);
-    setItemForm({
-      ...emptyItemForm,
-      item_code: `MED-${Math.floor(100 + Math.random() * 900)}`,
-    });
+    setItemForm(emptyItemForm);
     setAddItemModalOpen(true);
   }
 
