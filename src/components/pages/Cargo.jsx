@@ -1,183 +1,1122 @@
-import { Plus, Truck, PackageCheck } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import {
+  Plus,
+  Package,
+  Search,
+  X,
+  Layers,
+  Calendar,
+  ArrowRight,
+  Compass,
+  AlertCircle,
+  RefreshCw,
+  Tag,
+  Loader2,
+} from "lucide-react";
 import { colors, mono } from "../../theme";
 import Panel from "../ui/Panel";
 import Pill from "../ui/Pill";
 import SectionHeading from "../ui/SectionHeading";
-import {mockCargo as initialCargo, mockVoyage} from "../../data/mockCargo.js";
-import {useState} from "react";
 import FormField from "../ui/Formfield.jsx";
 import Modal from "../ui/Modal.jsx";
+import { TableSkeleton, CardSkeleton } from "../ui/Skeleton.jsx";
+import { useCargoStore } from "../../store/useCargoStore.js";
+import { useExpeditionStore } from "../../store/useExpeditionStore.js";
 
-const priorityOptions = ["Critical", "Standard"];
-const emptyForm = { item: "", qty: "", weight: "", volume: "", source: "", dest: "", priority: "Standard" };
+const priorityOptions = [
+  { value: "standard", label: "Standard" },
+  { value: "high", label: "High" },
+  { value: "critical", label: "Critical" },
+];
 
-function cargoStatusTone(status) {
-  if (status === "Delivered") return "aurora";
-  if (status === "Requested") return "muted";
+const cargoStatusOptions = [
+  { value: "draft", label: "Draft" },
+  { value: "packed", label: "Packed" },
+  { value: "dispatched", label: "Dispatched" },
+  { value: "in_transit", label: "In Transit" },
+  { value: "received", label: "Received" },
+  { value: "delayed", label: "Delayed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
+const batchStatusOptions = [
+  { value: "draft", label: "Draft" },
+  { value: "planned", label: "Planned" },
+  { value: "packed", label: "Packed" },
+  { value: "dispatched", label: "Dispatched" },
+  { value: "received", label: "Received" },
+  { value: "delayed", label: "Delayed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
+function batchStatusTone(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "draft") return "muted";
+  if (s === "planned" || s === "packed") return "amber";
+  if (s === "dispatched") return "ice";
+  if (s === "received") return "aurora";
+  if (s === "delayed") return "flare";
+  if (s === "cancelled") return "muted";
   return "ice";
 }
 
+function cargoStatusTone(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "draft") return "muted";
+  if (s === "packed") return "amber";
+  if (s === "dispatched" || s === "in_transit") return "ice";
+  if (s === "received") return "aurora";
+  if (s === "delayed") return "flare";
+  if (s === "cancelled") return "muted";
+  return "ice";
+}
+
+function priorityTone(priority) {
+  const p = String(priority || "").toLowerCase();
+  if (p === "critical") return "flare";
+  if (p === "high") return "amber";
+  return "muted";
+}
+
+function formatStatus(status) {
+  if (!status) return "—";
+  return String(status)
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatPriority(priority) {
+  if (!priority) return "Standard";
+  return String(priority).charAt(0).toUpperCase() + String(priority).slice(1);
+}
+
+function formatBatchOption(b) {
+  const code = b.batch_code || "LB-—";
+  const origin = b.origin_station_name || "—";
+  const dest = b.destination_station_name || "—";
+  const status = b.status || "planned";
+  return `${code} · ${origin} → ${dest} · ${status}`;
+}
+
+function formatDisplayDate(d) {
+  if (!d) return "—";
+  try {
+    const date = new Date(d);
+    if (isNaN(date.getTime())) return d;
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return d;
+  }
+}
+
+function toDateInputValue(d) {
+  if (!d) return "";
+  if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}/.test(d)) {
+    return d.slice(0, 10);
+  }
+  try {
+    const date = new Date(d);
+    if (isNaN(date.getTime())) return "";
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  } catch {
+    return "";
+  }
+}
+
+
+const emptyCargoForm = {
+  cargo_code: "",
+  origin_station_id: "",
+  destination_station_id: "",
+  expedition_id: "",
+  priority: "standard",
+  status: "draft",
+  notes: "",
+};
+
+const emptyBatchForm = {
+  batch_code: "",
+  expedition_id: "",
+  status: "planned",
+  planned_dispatch_at: "",
+  estimated_arrival_at: "",
+  notes: "",
+};
+
 const Cargo = () => {
-  const [cargo, setCargo] = useState(initialCargo);
+  const {
+    cargo,
+    batches,
+    loading,
+    submitting,
+    assigningCargoId,
+    error,
+    initialized,
+    fetchCargo,
+    createCargo,
+    createBatch,
+    assignLogisticsBatch,
+    clearError,
+  } = useCargoStore();
+
+  const {
+    stations,
+    expeditions,
+  } = useExpeditionStore();
+
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState(emptyForm);
+  const [batchModalOpen, setBatchModalOpen] = useState(false);
+  const [form, setForm] = useState(emptyCargoForm);
+  const [batchForm, setBatchForm] = useState(emptyBatchForm);
+  const [formError, setFormError] = useState(null);
+  const [batchFormError, setBatchFormError] = useState(null);
+  const [search, setSearch] = useState("");
 
-  const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
+  useEffect(() => {
+    if (!initialized) {
+      fetchCargo();
+    }
+  }, [initialized, fetchCargo]);
 
-  function handleSubmit(e) {
+  // Search filtering over cargo items
+  const filteredCargo = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return cargo;
+    return cargo.filter((c) => {
+      const id = (c.id || "").toLowerCase();
+      const code = (c.cargo_code || "").toLowerCase();
+      const origin = (c.origin_station_name || "").toLowerCase();
+      const dest = (c.destination_station_name || "").toLowerCase();
+      const expedition = (c.expedition_name || "").toLowerCase();
+      const batchCode = (c.logistics_batch_code || "").toLowerCase();
+      const priority = (c.priority || "").toLowerCase();
+      const status = (c.status || "").toLowerCase();
+      const notes = (c.notes || "").toLowerCase();
+      return (
+        id.includes(q) ||
+        code.includes(q) ||
+        origin.includes(q) ||
+        dest.includes(q) ||
+        expedition.includes(q) ||
+        batchCode.includes(q) ||
+        priority.includes(q) ||
+        status.includes(q) ||
+        notes.includes(q)
+      );
+    });
+  }, [cargo, search]);
+
+  const setC = (key) => (value) => {
+    setForm((f) => {
+      const updated = { ...f, [key]: value };
+      // Autofill origin and destination if expedition is chosen and stations exist on it
+      if (key === "expedition_id") {
+        if (value) {
+          const currentExpeditions = useExpeditionStore.getState().expeditions;
+          const currentStations = useExpeditionStore.getState().stations;
+          const exp = currentExpeditions.find((e) => e.id === value) || expeditions.find((e) => e.id === value);
+          if (exp) {
+            const allStations = currentStations.length > 0 ? currentStations : stations;
+            const originStation = allStations.find(
+              (s) =>
+                s.id === exp.origin_station_id ||
+                (exp.origin_station_name && s.name?.toLowerCase() === exp.origin_station_name.toLowerCase()) ||
+                (s.code && exp.origin_station_code && s.code.toLowerCase() === exp.origin_station_code.toLowerCase())
+            );
+            const destStation = allStations.find(
+              (s) =>
+                s.id === exp.destination_station_id ||
+                (exp.destination_station_name && s.name?.toLowerCase() === exp.destination_station_name.toLowerCase()) ||
+                (s.code && exp.destination_station_code && s.code.toLowerCase() === exp.destination_station_code.toLowerCase())
+            );
+
+            updated.origin_station_id = originStation?.id || exp.origin_station_id || exp.originStationId || "";
+            updated.destination_station_id = destStation?.id || exp.destination_station_id || exp.destinationStationId || "";
+          }
+        } else {
+          // Expedition deselected: clear and unlock origin & destination
+          updated.origin_station_id = "";
+          updated.destination_station_id = "";
+        }
+      }
+      return updated;
+    });
+  };
+
+  const setB = (key) => (value) => {
+    setBatchForm((f) => {
+      const updated = { ...f, [key]: value };
+      if (key === "expedition_id" && value) {
+        const exp = expeditions.find((e) => e.id === value);
+        if (exp) {
+          const startDate = exp.start_date || exp.startDate;
+          const endDate = exp.end_date || exp.endDate;
+          if (startDate) {
+            updated.planned_dispatch_at = toDateInputValue(startDate);
+          }
+          if (endDate) {
+            updated.estimated_arrival_at = toDateInputValue(endDate);
+          }
+        }
+      }
+      return updated;
+    });
+  };
+
+  function openCreateCargo() {
+    setFormError(null);
+    let nextNum = 2000;
+    const existingCodes = new Set(cargo.map((c) => c.cargo_code));
+    while (existingCodes.has(`CG-${nextNum}`)) {
+      nextNum++;
+    }
+    setForm({
+      ...emptyCargoForm,
+      cargo_code: `CG-${nextNum}`,
+    });
+    if (useExpeditionStore.getState().expeditions.length === 0) {
+      useExpeditionStore.getState().fetchExpeditions();
+    }
+    if (useExpeditionStore.getState().stations.length === 0) {
+      useExpeditionStore.getState().fetchFormOptions();
+    }
+    setModalOpen(true);
+  }
+
+  function openCreateBatch() {
+    setBatchFormError(null);
+    let nextNum = 1;
+    const existingCodes = new Set(batches.map((b) => b.batch_code));
+    while (existingCodes.has(`LB-2026-${String(nextNum).padStart(3, "0")}`)) {
+      nextNum++;
+    }
+    const defaultBatchCode = `LB-2026-${String(nextNum).padStart(3, "0")}`;
+
+    setBatchForm({
+      ...emptyBatchForm,
+      batch_code: defaultBatchCode,
+    });
+    if (useExpeditionStore.getState().expeditions.length === 0) {
+      useExpeditionStore.getState().fetchExpeditions();
+    }
+    setBatchModalOpen(true);
+  }
+
+  async function handleCargoSubmit(e) {
     e.preventDefault();
-    const newCargo = {
-      id: `CG-${Math.floor(2000 + Math.random() * 900)}`,
-      ...form,
-      status: "Requested",
-      voyage: null,
+    setFormError(null);
+
+    if (!form.origin_station_id) {
+      setFormError("Please select an origin station.");
+      return;
+    }
+    if (!form.destination_station_id) {
+      setFormError("Please select a destination station.");
+      return;
+    }
+    if (form.origin_station_id === form.destination_station_id) {
+      setFormError("Origin and destination stations cannot be the same.");
+      return;
+    }
+
+    const trimmedCode = form.cargo_code.trim();
+    if (cargo.some((c) => c.cargo_code && c.cargo_code.toLowerCase() === trimmedCode.toLowerCase())) {
+      setFormError(`A cargo item with code "${trimmedCode}" already exists.`);
+      return;
+    }
+
+    const payload = {
+      cargo_code: trimmedCode || `CG-${Math.floor(2000 + Math.random() * 900)}`,
+      origin_station_id: form.origin_station_id,
+      destination_station_id: form.destination_station_id,
+      expedition_id: form.expedition_id || undefined,
+      priority: form.priority || "standard",
+      status: form.status || "draft",
+      notes: form.notes ? form.notes.trim() : "",
     };
-    setCargo((list) => [newCargo, ...list]);
-    setForm(emptyForm);
-    setModalOpen(false);
+
+    try {
+      await createCargo(payload);
+      setModalOpen(false);
+      setForm(emptyCargoForm);
+    } catch (err) {
+      setFormError(err.message || "Failed to create cargo request.");
+    }
   }
 
-  function assignVoyage(id, voyageName) {
-    setCargo((list) =>
-      list.map((c) => (c.id === id ? { ...c, voyage: voyageName || null, status: voyageName ? "In transit" : "Requested" } : c))
-    );
+  async function handleBatchSubmit(e) {
+    e.preventDefault();
+    setBatchFormError(null);
+
+    const trimmedCode = batchForm.batch_code.trim();
+    if (!trimmedCode) {
+      setBatchFormError("Please enter a batch code.");
+      return;
+    }
+
+    // Prevent duplicate batch code immediately
+    if (batches.some((b) => b.batch_code && b.batch_code.toLowerCase() === trimmedCode.toLowerCase())) {
+      setBatchFormError(`A batch with code "${trimmedCode}" already exists. Please choose a unique batch code.`);
+      return;
+    }
+
+    if (!batchForm.expedition_id) {
+      setBatchFormError("A logistics batch must belong to an expedition.");
+      return;
+    }
+    if (!batchForm.planned_dispatch_at) {
+      setBatchFormError("Please select a planned dispatch date.");
+      return;
+    }
+    if (!batchForm.estimated_arrival_at) {
+      setBatchFormError("Please select an estimated arrival date.");
+      return;
+    }
+
+    const dispatchTime = new Date(batchForm.planned_dispatch_at).getTime();
+    const arrivalTime = new Date(batchForm.estimated_arrival_at).getTime();
+    if (arrivalTime < dispatchTime) {
+      setBatchFormError("Estimated arrival date cannot be earlier than planned dispatch date.");
+      return;
+    }
+
+    const payload = {
+      batch_code: trimmedCode,
+      expedition_id: batchForm.expedition_id,
+      status: batchForm.status || "planned",
+      planned_dispatch_at: new Date(batchForm.planned_dispatch_at).toISOString(),
+      estimated_arrival_at: new Date(batchForm.estimated_arrival_at).toISOString(),
+      notes: batchForm.notes ? batchForm.notes.trim() : "",
+    };
+
+    try {
+      await createBatch(payload);
+      setBatchModalOpen(false);
+      setBatchForm(emptyBatchForm);
+    } catch (err) {
+      setBatchFormError(err.message || "Failed to create logistics batch.");
+    }
   }
 
-  function markReceived(id) {
-    setCargo((list) => list.map((c) => (c.id === id ? { ...c, status: "Delivered" } : c)));
+  async function handleBatchAssignment(cargoId, selectedBatchId) {
+    try {
+      await assignLogisticsBatch(cargoId, selectedBatchId || null);
+    } catch (err) {
+      console.error("Batch assignment error:", err);
+    }
   }
+
+  // Station dropdown options populated with fallback for linked expedition stations
+  const stationOptions = useMemo(() => {
+    const opts = stations.map((s) => ({
+      value: s.id,
+      label: s.code ? `${s.name} (${s.code})` : s.name,
+    }));
+
+    const selectedExp = expeditions.find((e) => e.id === form.expedition_id);
+    const ensureOption = (id, fallbackName) => {
+      if (id && !opts.some((o) => o.value === id)) {
+        opts.push({
+          value: id,
+          label: fallbackName || id,
+        });
+      }
+    };
+
+    if (form.origin_station_id) {
+      ensureOption(form.origin_station_id, selectedExp?.origin_station_name);
+    }
+    if (form.destination_station_id) {
+      ensureOption(form.destination_station_id, selectedExp?.destination_station_name);
+    }
+
+    return opts;
+  }, [stations, expeditions, form.expedition_id, form.origin_station_id, form.destination_station_id]);
+
+  // Expedition dropdown options
+  const expeditionOptions = expeditions.map((e) => {
+    const code = e.expedition_code || e.code || "";
+    const name = e.expedition_name || e.name || "Untitled Expedition";
+    return {
+      value: e.id,
+      label: code ? `${code} · ${name}` : name,
+    };
+  });
+
+  // Preview selected expedition for batch creation
+  const selectedExpeditionForBatch = expeditions.find(
+    (e) => e.id === batchForm.expedition_id
+  );
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Top Header */}
       <SectionHeading
         right={
-          <button
-            onClick={() => setModalOpen(true)}
-            className="flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded cursor-pointer"
-            style={{ color: colors.iceButtonText, background: colors.ice }}
-          >
-            <Plus size={15} /> New cargo indent
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openCreateBatch}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded cursor-pointer transition-opacity hover:opacity-80"
+              style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}
+            >
+              <Layers size={14} /> New Logistics Batch
+            </button>
+            <button
+              onClick={openCreateCargo}
+              className="flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded cursor-pointer transition-opacity hover:opacity-90"
+              style={{ color: colors.iceButtonText, background: colors.ice }}
+            >
+              <Plus size={15} /> New Cargo Request
+            </button>
+          </div>
         }
       >
         Cargo & logistics
       </SectionHeading>
 
-      <Panel title="Cargo requests">
+      {/* Global Error Banner if API call failed */}
+      {error && (
+        <div
+          className="flex items-center justify-between p-3.5 rounded-lg text-sm"
+          style={{
+            background: colors.flareBg,
+            color: colors.flare,
+            border: `1px solid ${colors.flareDim}`,
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={() => {
+              clearError();
+              fetchCargo();
+            }}
+            className="flex items-center gap-1 text-xs px-2.5 py-1 rounded cursor-pointer transition-opacity hover:opacity-80 font-medium"
+            style={{
+              background: colors.bgRaised,
+              color: colors.text,
+              border: `1px solid ${colors.border}`,
+            }}
+          >
+            <RefreshCw size={12} /> Retry
+          </button>
+        </div>
+      )}
+
+      {/* Cargo Requests Table Panel */}
+      <Panel
+        title={`Cargo requests (${cargo.length})`}
+        action={
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded w-full sm:w-auto"
+            style={{ background: colors.bgRaised, border: `1px solid ${colors.border}` }}
+          >
+            <Search size={13} color={colors.textFaint} className="flex-shrink-0" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search code, route, expedition, batch..."
+              className="text-xs outline-none bg-transparent w-full sm:w-60"
+              style={{ color: colors.text }}
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="cursor-pointer hover:opacity-80 p-0.5 text-xs flex-shrink-0"
+                style={{ color: colors.textFaint }}
+                title="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+        }
+      >
         <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-          <table className="w-full text-sm border-collapse min-w-[760px]">
-            <thead>
-            <tr style={{ color: colors.textFaint }}>
-              {["ID", "Item", "Qty", "Weight", "Volume", "Source → Destination", "Priority", "Voyage", "Status", ""].map((h) => (
-                <th key={h} className="text-left font-medium pb-3 text-xs whitespace-nowrap">{h}</th>
-              ))}
-            </tr>
-            </thead>
-            <tbody>
-            {cargo.map((c) => (
-              <tr key={c.id} style={{ borderTop: `1px solid ${colors.borderSoft}` }}>
-                <td className="py-3 whitespace-nowrap" style={{ color: colors.textFaint, ...mono, fontSize: 12 }}>{c.id}</td>
-                <td className="py-3 whitespace-nowrap" style={{ color: colors.text }}>{c.item}</td>
-                <td className="py-3 whitespace-nowrap" style={{ color: colors.textMuted, ...mono, fontSize: 13 }}>{c.qty}</td>
-                <td className="py-3 whitespace-nowrap" style={{ color: colors.textMuted, ...mono, fontSize: 13 }}>{c.weight}</td>
-                <td className="py-3 whitespace-nowrap" style={{ color: colors.textMuted, ...mono, fontSize: 13 }}>{c.volume}</td>
-                <td className="py-3 whitespace-nowrap" style={{ color: colors.textMuted, fontSize: 13 }}>{c.source} → {c.dest}</td>
-                <td className="py-3 whitespace-nowrap"><Pill tone={c.priority === "Critical" ? "flare" : "muted"}>{c.priority}</Pill></td>
-                <td className="py-3 whitespace-nowrap">
-                  <select
-                    value={c.voyage || ""}
-                    onChange={(ev) => assignVoyage(c.id, ev.target.value)}
-                    disabled={c.status === "Delivered"}
-                    className="text-xs rounded px-2 py-1"
-                    style={{ background: colors.bgRaised, color: colors.text, border: `1px solid ${colors.border}` }}
-                  >
-                    <option value="">Unassigned</option>
-                    {mockVoyage.map((v) => (
-                      <option key={v.vessel} value={v.vessel}>{v.vessel}</option>
-                    ))}
-                  </select>
-                </td>
-                <td className="py-3 whitespace-nowrap"><Pill tone={cargoStatusTone(c.status)}>{c.status}</Pill></td>
-                <td className="py-3 whitespace-nowrap">
-                  {c.status === "In transit" && (
-                    <button
-                      onClick={() => markReceived(c.id)}
-                      className="flex items-center gap-1 text-xs px-2 py-1 rounded cursor-pointer"
-                      style={{ color: colors.aurora, border: `1px solid ${colors.auroraDim}` }}
+          {loading && !initialized ? (
+            <TableSkeleton rows={5} cols={7} />
+          ) : (
+            <table className="w-full text-sm border-collapse min-w-[1050px]">
+              <thead>
+                <tr style={{ color: colors.textFaint }}>
+                  {[
+                    "Cargo Code",
+                    "Expedition",
+                    "Route (Origin → Destination)",
+                    "Priority",
+                    "Dispatch Batch",
+                    "Status",
+                    "Notes",
+                  ].map((h, idx) => (
+                    <th
+                      key={h}
+                      className={`text-left font-medium pb-3 text-xs whitespace-nowrap px-4 ${
+                        idx === 0 ? "pl-2" : ""
+                      } ${idx === 6 ? "pr-2" : ""}`}
                     >
-                      <PackageCheck size={12} /> Receive
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            </tbody>
-          </table>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCargo.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="py-10 text-center text-xs"
+                      style={{ color: colors.textMuted }}
+                    >
+                      {search
+                        ? `No cargo requests match "${search}".`
+                        : "No cargo requests recorded. Click \"New Cargo Request\" to create one."}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredCargo.map((c) => {
+                    // Match batch by batch_code or logistics_batch_id
+                    const assignedBatch = batches.find(
+                      (b) =>
+                        (b.batch_code && b.batch_code === c.logistics_batch_code) ||
+                        (b.id && b.id === c.logistics_batch_id)
+                    );
+                    const currentBatchId = assignedBatch?.id || c.logistics_batch_id || "";
+                    const isAssigningThisRow = assigningCargoId === c.id;
+
+                    return (
+                      <tr
+                        key={c.id}
+                        style={{ borderTop: `1px solid ${colors.borderSoft}` }}
+                      >
+                        {/* Cargo Code */}
+                        <td
+                          className="py-3.5 px-4 pl-2 whitespace-nowrap font-medium"
+                          style={{ color: colors.text, ...mono, fontSize: 13 }}
+                        >
+                          {c.cargo_code || c.id}
+                        </td>
+
+                        {/* Expedition */}
+                        <td
+                          className="py-3.5 px-4 whitespace-nowrap"
+                          style={{ color: colors.textMuted, fontSize: 13 }}
+                        >
+                          {c.expedition_name ? (
+                            <span className="flex items-center gap-1.5">
+                              <Compass size={13} style={{ color: colors.textFaint }} />
+                              <span style={{ color: colors.text }}>{c.expedition_name}</span>
+                            </span>
+                          ) : (
+                            <span style={{ color: colors.textFaint }}>—</span>
+                          )}
+                        </td>
+
+                        {/* Origin -> Destination Route */}
+                        <td
+                          className="py-3.5 px-4 whitespace-nowrap"
+                          style={{ color: colors.textMuted, fontSize: 13 }}
+                        >
+                          <span className="font-medium" style={{ color: colors.text }}>
+                            {c.origin_station_name || "—"}
+                          </span>
+                          <span style={{ color: colors.textFaint }} className="mx-1.5">
+                            →
+                          </span>
+                          <span className="font-medium" style={{ color: colors.text }}>
+                            {c.destination_station_name || "—"}
+                          </span>
+                        </td>
+
+                        {/* Priority */}
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <Pill tone={priorityTone(c.priority)}>
+                            {formatPriority(c.priority)}
+                          </Pill>
+                        </td>
+
+                        {/* Dispatch Batch Dropdown */}
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={currentBatchId}
+                              disabled={isAssigningThisRow}
+                              onChange={(ev) => handleBatchAssignment(c.id, ev.target.value)}
+                              className="text-xs rounded px-2.5 py-1.5 outline-none max-w-[320px] truncate cursor-pointer transition-opacity"
+                              style={{
+                                background: colors.bgRaised,
+                                color: currentBatchId ? colors.text : colors.textFaint,
+                                border: `1px solid ${colors.border}`,
+                                opacity: isAssigningThisRow ? 0.6 : 1,
+                              }}
+                              title="Assign to a logistics dispatch batch"
+                            >
+                              <option value="">Unassigned</option>
+                              {batches.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                  {formatBatchOption(b)}
+                                </option>
+                              ))}
+                            </select>
+                            {isAssigningThisRow && (
+                              <Loader2
+                                size={13}
+                                className="animate-spin"
+                                style={{ color: colors.ice }}
+                              />
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <Pill tone={cargoStatusTone(c.status)}>
+                            {formatStatus(c.status)}
+                          </Pill>
+                        </td>
+
+                        {/* Notes */}
+                        <td
+                          className="py-3.5 px-4 pr-2 max-w-[220px] truncate text-xs"
+                          style={{ color: colors.textMuted }}
+                          title={c.notes || ""}
+                        >
+                          {c.notes || "—"}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </Panel>
 
-      <Panel title="Ships & planes">
-        <div className="flex flex-col gap-5">
-          {mockVoyage.map((v) => {
-            const assigned = cargo.filter((c) => c.voyage === v.vessel);
-            return (
-              <div key={v.vessel} className="flex flex-col gap-2.5" style={{ borderBottom: `1px solid ${colors.borderSoft}`, paddingBottom: 16 }}>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <Truck size={16} color={v.status === "Grounded" ? colors.flare : colors.ice} className="flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
+      {/* Logistics Batches Section */}
+      <Panel
+        title={`Logistics Batches (${batches.length})`}
+        action={
+          <button
+            onClick={openCreateBatch}
+            className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded cursor-pointer transition-opacity hover:opacity-80"
+            style={{
+              background: colors.auroraBg,
+              color: colors.aurora,
+              border: `1px solid ${colors.auroraDim}`,
+            }}
+          >
+            <Plus size={13} /> New Logistics Batch
+          </button>
+        }
+      >
+        {loading && !initialized ? (
+          <CardSkeleton count={2} />
+        ) : batches.length === 0 ? (
+          <div
+            className="py-10 text-center text-xs rounded-lg"
+            style={{ color: colors.textMuted, border: `1px dashed ${colors.borderSoft}` }}
+          >
+            No logistics batches created yet. Click "New Logistics Batch" above to plan a batch for an expedition.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
+            {batches.map((b) => {
+              const assignedCargoList = cargo.filter(
+                (c) =>
+                  (c.logistics_batch_code && c.logistics_batch_code === b.batch_code) ||
+                  (c.logistics_batch_id && c.logistics_batch_id === b.id)
+              );
+              const cargoCount = b.cargo_count ?? assignedCargoList.length;
+
+              return (
+                <div
+                  key={b.id || b.batch_code}
+                  className="rounded-lg p-4 sm:p-5 flex flex-col justify-between gap-3.5 transition-colors"
+                  style={{
+                    background: colors.bgRaised,
+                    border: `1px solid ${colors.border}`,
+                  }}
+                >
+                  {/* Batch Header */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium" style={{ color: colors.text }}>{v.vessel}</span>
-                        <span className="text-xs" style={{ color: colors.textFaint }}>{v.type}</span>
+                        <span
+                          className="text-sm font-semibold tracking-wide"
+                          style={{ ...mono, color: colors.text }}
+                        >
+                          {b.batch_code}
+                        </span>
+                        <Pill tone={batchStatusTone(b.status)}>
+                          {formatStatus(b.status)}
+                        </Pill>
                       </div>
-                      <span className="text-xs" style={{ color: colors.textMuted }}>
-                        {v.route} · departs {v.departure} · {v.cargo} cargo
+                      <div
+                        className="flex items-center gap-1.5 text-xs font-medium truncate"
+                        style={{ color: colors.text }}
+                      >
+                        <span>{b.origin_station_name || "—"}</span>
+                        <ArrowRight size={12} style={{ color: colors.textFaint }} />
+                        <span>{b.destination_station_name || "—"}</span>
+                      </div>
+                    </div>
+
+                    {/* Cargo count badge */}
+                    <div className="text-right flex-shrink-0">
+                      <div
+                        className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded"
+                        style={{
+                          background: colors.panelAlt,
+                          color: colors.ice,
+                          border: `1px solid ${colors.borderSoft}`,
+                        }}
+                      >
+                        <Package size={13} />
+                        <span style={{ ...mono }}>{cargoCount}</span>
+                        <span>{cargoCount === 1 ? "cargo item" : "cargo items"}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Batch Details Grid */}
+                  <div
+                    className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-3 text-xs"
+                    style={{ borderTop: `1px solid ${colors.borderSoft}` }}
+                  >
+                    {/* Linked expedition */}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Compass
+                        size={13}
+                        className="flex-shrink-0"
+                        style={{ color: colors.textFaint }}
+                      />
+                      <span className="truncate" style={{ color: colors.textMuted }}>
+                        {b.expedition_name ? (
+                          <span style={{ color: colors.text, fontWeight: 500 }}>
+                            {b.expedition_name}
+                          </span>
+                        ) : (
+                          <span style={{ color: colors.textFaint }}>Unlinked expedition</span>
+                        )}
+                      </span>
+                    </div>
+
+                    {/* Planned Dispatch & Est. Arrival */}
+                    <div className="flex items-center gap-1.5 min-w-0 sm:justify-end">
+                      <Calendar
+                        size={13}
+                        className="flex-shrink-0"
+                        style={{ color: colors.textFaint }}
+                      />
+                      <span style={{ color: colors.textMuted, fontSize: 12 }}>
+                        {formatDisplayDate(b.planned_dispatch_at)} →{" "}
+                        {formatDisplayDate(b.estimated_arrival_at)}
                       </span>
                     </div>
                   </div>
-                  <div className="self-start sm:self-auto flex-shrink-0">
-                    <Pill tone={v.status === "Grounded" ? "flare" : "ice"}>
-                      {v.status === "Grounded" ? v.status : `${v.status}`}
-                    </Pill>
-                  </div>
+
+                  {/* Assigned items tag list if any */}
+                  {assignedCargoList.length > 0 && (
+                    <div
+                      className="flex flex-wrap gap-1.5 pt-2"
+                      style={{ borderTop: `1px solid ${colors.borderSoft}` }}
+                    >
+                      {assignedCargoList.map((c) => (
+                        <span
+                          key={c.id}
+                          className="text-[11px] px-2 py-0.5 rounded flex items-center gap-1"
+                          style={{
+                            background: colors.panelAlt,
+                            color: colors.textMuted,
+                            border: `1px solid ${colors.borderSoft}`,
+                          }}
+                        >
+                          <Tag size={10} style={{ color: colors.textFaint }} />
+                          <span className="font-medium" style={{ color: colors.text, ...mono }}>
+                            {c.cargo_code || c.id}
+                          </span>
+                          {c.notes && (
+                            <span className="max-w-[120px] truncate">· {c.notes}</span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                {assigned.length > 0 && (
-                  <div className="sm:ml-7 flex flex-wrap gap-2">
-                    {assigned.map((c) => (
-                      <span key={c.id} className="text-xs px-2 py-1 rounded" style={{ background: colors.panelAlt, color: colors.textMuted, border: `1px solid ${colors.border}` }}>
-                        {c.item} → {c.dest}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </Panel>
 
+      {/* Modal: Create Cargo Request */}
       {modalOpen && (
-        <Modal title="New cargo indent" onClose={() => setModalOpen(false)}>
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <FormField label="Item" value={form.item} onChange={set("item")} required />
+        <Modal title="New cargo request" onClose={() => setModalOpen(false)}>
+          <form onSubmit={handleCargoSubmit} className="flex flex-col gap-4">
+            {formError && (
+              <div
+                className="flex items-center gap-2 p-3 rounded text-xs"
+                style={{
+                  background: colors.flareBg,
+                  color: colors.flare,
+                  border: `1px solid ${colors.flareDim}`,
+                }}
+              >
+                <AlertCircle size={14} className="flex-shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label="Quantity" value={form.qty} onChange={set("qty")} placeholder="e.g. 20 boxes" required />
-              <FormField label="Weight" value={form.weight} onChange={set("weight")} placeholder="e.g. 5 MT" required />
+              <FormField
+                label="Cargo code"
+                value={form.cargo_code}
+                onChange={setC("cargo_code")}
+                placeholder="e.g. CG-2302"
+                required
+              />
+              <FormField
+                label="Linked expedition (optional)"
+                as="select"
+                options={[
+                  { value: "", label: "None / General station logistics" },
+                  ...expeditionOptions,
+                ]}
+                value={form.expedition_id}
+                onChange={setC("expedition_id")}
+              />
             </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label="Volume" value={form.volume} onChange={set("volume")} placeholder="e.g. 10 m³" />
-              <FormField label="Priority" as="select" options={priorityOptions} value={form.priority} onChange={set("priority")} />
+              <FormField
+                label={form.expedition_id ? "Origin station (auto-filled)" : "Origin station"}
+                as="select"
+                options={stationOptions}
+                value={form.origin_station_id}
+                onChange={setC("origin_station_id")}
+                placeholder={form.expedition_id ? "Auto-assigned from expedition..." : "Select origin station..."}
+                disabled={Boolean(form.expedition_id)}
+                required
+              />
+              <FormField
+                label={form.expedition_id ? "Destination station (auto-filled)" : "Destination station"}
+                as="select"
+                options={stationOptions}
+                value={form.destination_station_id}
+                onChange={setC("destination_station_id")}
+                placeholder={form.expedition_id ? "Auto-assigned from expedition..." : "Select destination station..."}
+                disabled={Boolean(form.expedition_id)}
+                required
+              />
             </div>
+
+            {form.expedition_id && (
+              <div
+                className="text-[11px] px-2.5 py-1.5 rounded flex items-center gap-1.5 -mt-2"
+                style={{
+                  background: colors.panelAlt,
+                  color: colors.textMuted,
+                  border: `1px solid ${colors.borderSoft}`,
+                }}
+              >
+                <ArrowRight size={11} style={{ color: colors.aurora }} />
+                <span>
+                  Origin & destination automatically aligned and locked to linked expedition route.
+                </span>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label="Source" value={form.source} onChange={set("source")} required />
-              <FormField label="Destination" value={form.dest} onChange={set("dest")} required />
+              <FormField
+                label="Priority"
+                as="select"
+                options={priorityOptions}
+                value={form.priority}
+                onChange={setC("priority")}
+                required
+              />
+              <FormField
+                label="Status"
+                as="select"
+                options={cargoStatusOptions}
+                value={form.status}
+                onChange={setC("status")}
+                required
+              />
             </div>
+
+            <FormField
+              label="Cargo notes / description"
+              as="textarea"
+              value={form.notes}
+              onChange={setC("notes")}
+              placeholder="e.g. Seismic sensor kits, core sample boxes..."
+            />
+
             <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setModalOpen(false)} className="text-sm px-4 py-2 rounded cursor-pointer" style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}>
+              <button
+                type="button"
+                onClick={() => setModalOpen(false)}
+                className="text-sm px-4 py-2 rounded cursor-pointer"
+                style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}
+              >
                 Cancel
               </button>
-              <button type="submit" className="text-sm font-medium px-4 py-2 rounded cursor-pointer" style={{ color: colors.iceButtonText, background: colors.ice }}>
-                Create request
+              <button
+                type="submit"
+                disabled={submitting}
+                className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded cursor-pointer transition-opacity"
+                style={{
+                  color: colors.iceButtonText,
+                  background: colors.ice,
+                  opacity: submitting ? 0.7 : 1,
+                }}
+              >
+                {submitting && <Loader2 size={14} className="animate-spin" />}
+                <span>Create cargo</span>
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Modal: Create Logistics Batch */}
+      {batchModalOpen && (
+        <Modal title="Create logistics batch" onClose={() => setBatchModalOpen(false)}>
+          <form onSubmit={handleBatchSubmit} className="flex flex-col gap-4">
+            {batchFormError && (
+              <div
+                className="flex items-center gap-2 p-3 rounded text-xs"
+                style={{
+                  background: colors.flareBg,
+                  color: colors.flare,
+                  border: `1px solid ${colors.flareDim}`,
+                }}
+              >
+                <AlertCircle size={14} className="flex-shrink-0" />
+                <span>{batchFormError}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField
+                label="Batch code"
+                value={batchForm.batch_code}
+                onChange={setB("batch_code")}
+                placeholder="e.g. LB-2026-001"
+                required
+              />
+              <FormField
+                label="Initial status"
+                as="select"
+                options={batchStatusOptions}
+                value={batchForm.status}
+                onChange={setB("status")}
+                required
+              />
+            </div>
+
+            <div>
+              <FormField
+                label="Assigned expedition (required)"
+                as="select"
+                options={expeditionOptions}
+                value={batchForm.expedition_id}
+                onChange={setB("expedition_id")}
+                placeholder="Select linked expedition..."
+                required
+              />
+              {selectedExpeditionForBatch ? (
+                <div
+                  className="mt-1.5 text-[11px] px-2.5 py-1.5 rounded flex items-center gap-1.5"
+                  style={{
+                    background: colors.panelAlt,
+                    color: colors.textMuted,
+                    border: `1px solid ${colors.borderSoft}`,
+                  }}
+                >
+                  <ArrowRight size={11} style={{ color: colors.aurora }} />
+                  <span className="flex flex-col">
+                    <span>
+                      Route automatically aligned to:{" "}
+                      <strong style={{ color: colors.text }}>
+                        {selectedExpeditionForBatch.origin_station_name || "Origin Station"}
+                      </strong>{" "}
+                      →{" "}
+                      <strong style={{ color: colors.text }}>
+                        {selectedExpeditionForBatch.destination_station_name || "Destination Station"}
+                      </strong>
+                    </span>
+                    {(selectedExpeditionForBatch.start_date || selectedExpeditionForBatch.end_date) && (
+                      <span className="text-[10px] mt-0.5 font-medium" style={{ color: colors.aurora }}>
+                        Dispatch & arrival dates autofilled: {formatDisplayDate(selectedExpeditionForBatch.start_date)} → {formatDisplayDate(selectedExpeditionForBatch.end_date)}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              ) : (
+                <span className="text-[11px] mt-1 block" style={{ color: colors.textFaint }}>
+                  The backend automatically assigns origin and destination stations from this expedition.
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField
+                label="Planned dispatch date"
+                type="date"
+                value={batchForm.planned_dispatch_at}
+                onChange={setB("planned_dispatch_at")}
+                required
+              />
+              <FormField
+                label="Estimated arrival date"
+                type="date"
+                value={batchForm.estimated_arrival_at}
+                onChange={setB("estimated_arrival_at")}
+                min={batchForm.planned_dispatch_at || undefined}
+                required
+              />
+            </div>
+
+            <FormField
+              label="Batch notes (optional)"
+              as="textarea"
+              value={batchForm.notes}
+              onChange={setB("notes")}
+              placeholder="e.g. Temperature-sensitive payload, scientific equipment consignment..."
+            />
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setBatchModalOpen(false)}
+                className="text-sm px-4 py-2 rounded cursor-pointer"
+                style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded cursor-pointer transition-opacity"
+                style={{
+                  color: colors.iceButtonText,
+                  background: colors.ice,
+                  opacity: submitting ? 0.7 : 1,
+                }}
+              >
+                {submitting && <Loader2 size={14} className="animate-spin" />}
+                <span>Create batch</span>
               </button>
             </div>
           </form>

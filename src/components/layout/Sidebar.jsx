@@ -1,20 +1,58 @@
-import { Boxes, Compass, Snowflake, TriangleAlert, Truck, Users, X } from "lucide-react";
-import mockExpeditions from "../../data/mockExpeditions.js";
-import { personnel } from "../../data/mockPersonnels.js";
+import { Boxes, Compass, Package, TriangleAlert, Users, X } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import { useExpeditionStore } from "../../store/useExpeditionStore.js";
+import { usePersonnelStore } from "../../store/usePersonnelStore.js";
+import { useCargoStore } from "../../store/useCargoStore.js";
+import { useInventoryStore, selectInventoryAlertCount } from "../../store/useInventoryStore.js";
+import { useEmergencyStore } from "../../store/useEmergencyStore.js";
 import { colors } from "../../theme.js";
 
-const Navigation = [
-  { key: "overview", label: "Overview", icon: Compass },
-  { key: "expeditions", label: "Expeditions", icon: Compass, badge: mockExpeditions.length },
-  { key: "personnel", label: "Personnel", icon: Users, badge: personnel.length },
-  { key: "cargo", label: "Cargo & Logistics", icon: Truck },
-  { key: "inventory", label: "Inventory", icon: Boxes, alert: 2 },
-  { key: "emergency", label: "Emergency", icon: TriangleAlert, alert: 1 },
-];
+const Sidebar = ({ mobileOpen, setMobileOpen }) => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const expeditionCount = useExpeditionStore((s) => s.expeditions.length);
+  const personnelCount = usePersonnelStore((s) => s.totalPersonnel.length);
+  const cargoCount = useCargoStore((s) => s.cargo.length);
+  const inventoryAlertCount = useInventoryStore(selectInventoryAlertCount);
+  const inventoryInitialized = useInventoryStore((s) => s.initialized);
+  const fetchInventory = useInventoryStore((s) => s.fetchInventory);
+  const emergencyAlertCount = useEmergencyStore((s) => s.activeCount);
+  const fetchActiveEmergencies = useEmergencyStore((s) => s.fetchActive);
 
-const Sidebar = ({ view, setView, mobileOpen, setMobileOpen }) => {
-  const handleNavClick = (key) => {
-    setView(key);
+  useEffect(() => {
+    if (!inventoryInitialized) {
+      fetchInventory();
+    }
+  }, [inventoryInitialized, fetchInventory]);
+
+  useEffect(() => {
+    fetchActiveEmergencies();
+    const interval = setInterval(fetchActiveEmergencies, 15000);
+    return () => clearInterval(interval);
+  }, [fetchActiveEmergencies]);
+
+  const navigation = [
+    { path: "/overview", label: "Overview", icon: Compass },
+    { path: "/expeditions", label: "Expeditions", icon: Compass, badge: expeditionCount },
+    { path: "/personnel", label: "Personnel", icon: Users, badge: personnelCount },
+    { path: "/cargo", label: "Cargo & Logistics", icon: Package, badge: cargoCount },
+    {
+      path: "/inventory",
+      label: "Inventory",
+      icon: Boxes,
+      alert: inventoryAlertCount > 0 ? inventoryAlertCount : undefined,
+    },
+    {
+      path: "/emergency",
+      label: "Emergency",
+      icon: TriangleAlert,
+      alert: emergencyAlertCount > 0 ? emergencyAlertCount : undefined,
+    },
+  ];
+
+  const handleNavClick = (path) => {
+    navigate(path);
     if (setMobileOpen) {
       setMobileOpen(false);
     }
@@ -22,12 +60,16 @@ const Sidebar = ({ view, setView, mobileOpen, setMobileOpen }) => {
 
   const navList = (
     <nav className="flex-1 py-3 px-3 flex flex-col gap-0.5 overflow-y-auto">
-      {Navigation.map((n) => {
-        const active = view === n.key;
+      {navigation.map((n) => {
+        const active =
+          n.path === "/overview"
+            ? location.pathname === "/" || location.pathname === "/overview"
+            : location.pathname.startsWith(n.path);
+
         return (
           <button
-            key={n.key}
-            onClick={() => handleNavClick(n.key)}
+            key={n.path}
+            onClick={() => handleNavClick(n.path)}
             className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-left transition-colors cursor-pointer"
             style={{
               background: active ? colors.panelAlt : "transparent",
@@ -36,12 +78,12 @@ const Sidebar = ({ view, setView, mobileOpen, setMobileOpen }) => {
           >
             <n.icon size={16} color={active ? colors.ice : colors.textFaint} strokeWidth={1.75} />
             <span className="flex-1">{n.label}</span>
-            {n.badge && (
+            {n.badge !== undefined && n.badge !== null && (
               <span className="text-xs" style={{ color: colors.textFaint, fontFamily: "monospace" }}>
                 {n.badge}
               </span>
             )}
-            {n.alert && (
+            {Boolean(n.alert) && (
               <span
                 className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-semibold"
                 style={{ background: colors.flare, color: "#fff" }}
@@ -61,14 +103,8 @@ const Sidebar = ({ view, setView, mobileOpen, setMobileOpen }) => {
       style={{ borderBottom: `1px solid ${colors.borderSoft}` }}
     >
       <div className="flex items-center gap-2.5 min-w-0">
-        {/*<div*/}
-        {/*  className="w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0"*/}
-        {/*  style={{ background: colors.iceBg, border: `1px solid ${colors.iceDim}` }}*/}
-        {/*>*/}
-        {/*  <Snowflake size={16} color={colors.ice} />*/}
-        {/*</div>*/}
         <div>
-          <img class="w-40 h-auto" src={"src/assets/Black and White Modern Corporate Letter D Logo.png"}/>
+          <img className="w-40 h-auto" src={"/src/assets/Black and White Modern Corporate Letter D Logo.png"} alt="Drishti logo" />
         </div>
         <div className="min-w-0">
           <div className="text-sm font-semibold tracking-wide" style={{ color: colors.text }}>DRISHTI</div>

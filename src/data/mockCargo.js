@@ -1,93 +1,160 @@
-
-/*
-mockCargo = [
-    {
-        id: "CARGO-ID (ex: CG-2291)",
-        item: "ITEM-NAME (ex: Aircraft fuel (drums))",
-        qty: "NO-OF-ITEMS (ex: 142 drums)",
-        weight: "NET-WEIGHT (ex: 268 MT)",
-        dest: "DESTINATION (ex: Amundsen Station)",
-        priority: "PRIORITY (Critical or Standard)",
-        status: "CURRENT-STATUS (ex: In transit)"
-    }
-]
-
-mockVoyage = [
-    {
-        vessel: "NAME-OF-VEHICLE (ex: Cargo ship #33)",
-        type: "TYPE-OF-VEHICLE (ex: Icebreaker ship)",
-        route: "FROM-→-TO (ex: Lyttelton → McMurdo)",
-        cargo: "WEIGHT (ex: 2,400 MT)",
-        eta: "EVERYONE-KNOW-THIS (ex: Dec 06)",
-        status: "CURRENT-STATUS (ex: Sailing)"
-    }
-]
+/**
+ * Cargo & Dispatch Batches Data
+ * QR-based status tracking only (no vehicle / vessel / aircraft / tracking concepts)
  */
 
-const mockCargo = [
-    {
-        id: "CG-2291",
-        item: "Aircraft fuel (drums)",
-        qty: "142 drums",
-        weight: "268 MT",
-        dest: "Amundsen Station",
-        priority: "Critical",
-        status: "Requested"
-    },
-    {
-        id: "CG-2294",
-        item: "Medical oxygen tanks",
-        qty: "18 units",
-        weight: "2.1 MT",
-        dest: "Sector 4 Depot",
-        priority: "Critical",
-        status: "Requested"
-    },
-    {
-        id: "CG-2298",
-        item: "Portable shelter units",
-        qty: "6 units",
-        weight: "44 MT",
-        dest: "Rothera",
-        priority: "Standard",
-        status: "Requested"
-    },
-    {
-        id: "CG-2301",
-        item: "Lab equipment kits",
-        qty: "30 kits",
-        weight: "1.4 MT",
-        dest: "Rothera",
-        priority: "Standard",
-        status: "Requested"
-    },
-]
+export const cargoStatuses = [
+  "Requested",
+  "Packed",
+  "Dispatched",
+  "In transit",
+  "Received",
+  "Delayed",
+  "Cancelled",
+];
 
-const mockVoyage = [
-    {
-        vessel: "Polar Star",
-        type: "Icebreaker ship",
-        route: "Lyttelton → McMurdo",
-        cargo: "2,400 MT",
-        eta: "Dec 06",
-        status: "Sailing"
-    },
-    {
-        vessel: "David Attenborough",
-        type: "Research ship",
-        route: "Falklands → Rothera",
-        cargo: "850 MT",
-        eta: "Dec 04",
-        status: "Sailing"
-    },
-    {
-        vessel: "Cargo Plane #33",
-        type: "Aircraft",
-        route: "Williams → South Pole",
-        cargo: "14 MT",
-        eta: "On hold",
-        status: "Grounded"
-    },
-]
+export const dispatchBatchStatuses = [
+  "Planned",
+  "Dispatched",
+  "Received",
+  "Delayed",
+  "Cancelled",
+];
 
-export {mockCargo, mockVoyage};
+export const mockDispatchBatches = [
+  {
+    id: "DB-2026-014",
+    code: "DB-2026-014",
+    origin: "Bharti",
+    destination: "Sector 4 Depot",
+    expeditionCode: "EXP-8821",
+    expeditionName: "Queen Maud Land Crossing",
+    dispatchDate: "2026-09-12",
+    arrivalDate: "2026-09-16",
+    status: "Planned",
+  },
+  {
+    id: "DB-2026-015",
+    code: "DB-2026-015",
+    origin: "India HQ",
+    destination: "Maitri",
+    expeditionCode: null,
+    expeditionName: null,
+    dispatchDate: "2026-09-15",
+    arrivalDate: "2026-09-22",
+    status: "Dispatched",
+  },
+  {
+    id: "DB-2026-016",
+    code: "DB-2026-016",
+    origin: "Maitri",
+    destination: "Bharti",
+    expeditionCode: "EXP-8824",
+    expeditionName: "Vostok Ice Drilling Project",
+    dispatchDate: "2026-09-18",
+    arrivalDate: "2026-09-21",
+    status: "Received",
+  },
+  {
+    id: "DB-2026-017",
+    code: "DB-2026-017",
+    origin: "Sector 4 Depot",
+    destination: "Amundsen Station",
+    expeditionCode: "EXP-8829",
+    expeditionName: "Ross Ice Shelf Survey Team",
+    dispatchDate: "2026-09-10",
+    arrivalDate: "2026-09-18",
+    status: "Delayed",
+  },
+];
+
+export const mockCargo = [
+  {
+    id: "CG-2291",
+    item: "Aircraft fuel (drums)",
+    qty: "142 drums",
+    weight: "268 MT",
+    volume: "180 m³",
+    source: "Bharti",
+    dest: "Sector 4 Depot",
+    priority: "Critical",
+    dispatchBatch: "DB-2026-014",
+    status: "Packed",
+  },
+  {
+    id: "CG-2294",
+    item: "Medical oxygen tanks",
+    qty: "18 units",
+    weight: "2.1 MT",
+    volume: "6 m³",
+    source: "Bharti",
+    dest: "Sector 4 Depot",
+    priority: "Critical",
+    dispatchBatch: "DB-2026-014",
+    status: "Packed",
+  },
+  {
+    id: "CG-2298",
+    item: "Portable shelter units",
+    qty: "6 units",
+    weight: "44 MT",
+    volume: "90 m³",
+    source: "India HQ",
+    dest: "Maitri",
+    priority: "Standard",
+    dispatchBatch: "DB-2026-015",
+    status: "In transit",
+  },
+  {
+    id: "CG-2301",
+    item: "Lab equipment kits",
+    qty: "30 kits",
+    weight: "1.4 MT",
+    volume: "8 m³",
+    source: "India HQ",
+    dest: "Maitri",
+    priority: "Standard",
+    dispatchBatch: "DB-2026-015",
+    status: "Dispatched",
+  },
+  {
+    id: "CG-2305",
+    item: "Seismic sensor batteries",
+    qty: "50 packs",
+    weight: "0.8 MT",
+    volume: "2 m³",
+    source: "Maitri",
+    dest: "Bharti",
+    priority: "Standard",
+    dispatchBatch: "DB-2026-016",
+    status: "Received",
+  },
+  {
+    id: "CG-2309",
+    item: "Emergency ration packs",
+    qty: "80 crates",
+    weight: "5.5 MT",
+    volume: "12 m³",
+    source: "Sector 4 Depot",
+    dest: "Amundsen Station",
+    priority: "Critical",
+    dispatchBatch: "DB-2026-017",
+    status: "Delayed",
+  },
+  {
+    id: "CG-2312",
+    item: "Replacement hydraulic seals",
+    qty: "12 units",
+    weight: "0.3 MT",
+    volume: "1 m³",
+    source: "Maitri",
+    dest: "Bharti",
+    priority: "Standard",
+    dispatchBatch: null,
+    status: "Requested",
+  },
+];
+
+// Deprecated export for backward compatibility
+export const mockVoyage = [];
+export default mockCargo;

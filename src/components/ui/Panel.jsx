@@ -1,6 +1,6 @@
 import { colors } from "../../theme.js";
 
-const Panel = ({ title, action, children, style }) => {
+const Panel = ({ title, action, right, children, style }) => {
   return (
     <div
       className="rounded-lg"
@@ -21,7 +21,7 @@ const Panel = ({ title, action, children, style }) => {
           >
             {title}
           </h3>
-          {action}
+          {action || right}
         </div>
       )}
       <div className="p-4 sm:p-5">{children}</div>

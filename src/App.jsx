@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, Outlet } from "react-router-dom";
 import { colors, font } from "./theme";
 import { ThemeProvider } from "./context/ThemeContext";
 import Sidebar from "./components/layout/Sidebar";
@@ -9,22 +10,10 @@ import Personnel from "./components/pages/Personnel";
 import Cargo from "./components/pages/Cargo";
 import Inventory from "./components/pages/Inventory";
 import Emergency from "./components/pages/Emergency";
+import EmergencyDeviceSimulator from "./components/pages/EmergencyDeviceSimulator";
 
-// This component only does two jobs:
-// 1. Keep track of which tab is active (`view`)
-// 2. Render the layout (sidebar + header) and drop the right view inside it
-function Dashboard() {
-  const [view, setView] = useState("overview");
+function DashboardLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  const views = {
-    overview: <Overview go={setView} />,
-    expeditions: <Expedition />,
-    personnel: <Personnel />,
-    cargo: <Cargo />,
-    inventory: <Inventory />,
-    emergency: <Emergency />,
-  };
 
   return (
     <div
@@ -32,23 +21,42 @@ function Dashboard() {
       style={{ background: colors.bg, ...font }}
     >
       <Sidebar
-        view={view}
-        setView={setView}
         mobileOpen={mobileOpen}
         setMobileOpen={setMobileOpen}
       />
       <main className="flex-1 flex flex-col min-w-0">
         <Header onMenuClick={() => setMobileOpen(true)} />
-        <div className="flex-1 overflow-auto p-4 sm:p-6 md:p-7">{views[view]}</div>
+        <div className="flex-1 overflow-auto p-4 sm:p-6 md:p-7">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
 }
 
+function OverviewRoute() {
+  const navigate = useNavigate();
+  return <Overview go={(view) => navigate(`/${view}`)} />;
+}
+
 export default function App() {
   return (
-    <ThemeProvider>
-      <Dashboard />
-    </ThemeProvider>
+    <BrowserRouter>
+      <ThemeProvider>
+        <Routes>
+          <Route path="/emergency/device/simulate" element={<EmergencyDeviceSimulator />} />
+          <Route element={<DashboardLayout />}>
+            <Route path="/" element={<Navigate to="/overview" replace />} />
+            <Route path="/overview" element={<OverviewRoute />} />
+            <Route path="/expeditions" element={<Expedition />} />
+            <Route path="/personnel" element={<Personnel />} />
+            <Route path="/cargo" element={<Cargo />} />
+            <Route path="/inventory" element={<Inventory />} />
+            <Route path="/emergency" element={<Emergency />} />
+            <Route path="*" element={<Navigate to="/overview" replace />} />
+          </Route>
+        </Routes>
+      </ThemeProvider>
+    </BrowserRouter>
   );
 }
