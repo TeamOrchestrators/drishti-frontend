@@ -128,4 +128,8 @@ polar-ops-frontend/
 
 ## License
 
-This project is proprietary and maintained for DRISHTI Polar Operations.
+Copyright 2026 Team Orchestrators.
+
+This project is licensed under the Apache License, Version 2.0. You may use, modify, and distribute it in accordance with the terms of the license. See [LICENSE](LICENSE) for the full text.
+
+SPDX identifier: `Apache-2.0`
