@@ -104,7 +104,7 @@ const Sidebar = ({ mobileOpen, setMobileOpen }) => {
     >
       <div className="flex items-center gap-2.5 min-w-0">
         <div>
-          <img className="w-40 h-auto" src={"/src/assets/Black and White Modern Corporate Letter D Logo.png"} alt="Drishti logo" />
+          <img className="w-40 h-auto" src={"/src/assets/logo.png"} alt="Drishti logo" />
         </div>
         <div className="min-w-0">
           <div className="text-sm font-semibold tracking-wide" style={{ color: colors.text }}>DRISHTI</div>
