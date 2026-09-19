@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, Outlet } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, Outlet, useLocation } from "react-router-dom";
 import { colors, font } from "./theme";
 import { ThemeProvider } from "./context/ThemeContext";
 import Sidebar from "./components/layout/Sidebar";
@@ -11,6 +11,40 @@ import Cargo from "./components/pages/Cargo";
 import Inventory from "./components/pages/Inventory";
 import Emergency from "./components/pages/Emergency";
 import EmergencyDeviceSimulator from "./components/pages/EmergencyDeviceSimulator";
+
+function PageTitleHandler() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const routeTitles = {
+      "/": "Overview",
+      "/overview": "Overview",
+      "/expeditions": "Expeditions",
+      "/personnel": "Personnel",
+      "/cargo": "Cargo & Logistics",
+      "/inventory": "Inventory",
+      "/emergency": "Emergency",
+      "/emergency/device/simulate": "Emergency Device Simulator",
+    };
+
+    const pathname = location.pathname;
+    let pageName = routeTitles[pathname];
+
+    if (!pageName) {
+      if (pathname.startsWith("/expeditions")) pageName = "Expeditions";
+      else if (pathname.startsWith("/personnel")) pageName = "Personnel";
+      else if (pathname.startsWith("/cargo")) pageName = "Cargo & Logistics";
+      else if (pathname.startsWith("/inventory")) pageName = "Inventory";
+      else if (pathname.startsWith("/emergency/device/simulate")) pageName = "Emergency Device Simulator";
+      else if (pathname.startsWith("/emergency")) pageName = "Emergency";
+      else pageName = "Operations";
+    }
+
+    document.title = `Drishti - ${pageName}`;
+  }, [location.pathname]);
+
+  return null;
+}
 
 function DashboardLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -42,6 +76,7 @@ function OverviewRoute() {
 export default function App() {
   return (
     <BrowserRouter>
+      <PageTitleHandler />
       <ThemeProvider>
         <Routes>
           <Route path="/emergency/device/simulate" element={<EmergencyDeviceSimulator />} />
@@ -60,3 +95,4 @@ export default function App() {
     </BrowserRouter>
   );
 }
+

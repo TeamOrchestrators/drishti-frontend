@@ -1,6 +1,6 @@
-// In development, relative /api requests route through Vite's local dev server proxy.
-// Same-origin requests NEVER trigger an OPTIONS preflight, so the browser sends GET directly!
-// In production, or when VITE_FORCE_DIRECT_URL is true, VITE_API_URL is used.
+// When in development, relative /api requests route through Vite's local dev server proxy.
+// Same-origin requests avoid CORS preflight and access-control errors.
+// In production or when VITE_FORCE_DIRECT_URL is true, VITE_API_URL is used directly.
 const isDev = import.meta.env.DEV;
 const configuredUrl = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
@@ -9,15 +9,9 @@ export const BASE_URL = isDev && !import.meta.env.VITE_FORCE_DIRECT_URL ? "" : c
 export async function apiRequest(endpoint, options = {}) {
   const method = (options.method || "GET").toUpperCase();
   const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
-  let url = `${BASE_URL}${cleanEndpoint}`;
-
-  // If calling an ngrok endpoint directly (cross-origin), use query param instead of custom header
-  // because custom headers trigger browser OPTIONS preflight
-  if (url.includes("ngrok")) {
-    const separator = url.includes("?") ? "&" : "?";
-    url = `${url}${separator}ngrok-skip-browser-warning=true`;
-  }
-
+  let url = endpoint.startsWith("http://") || endpoint.startsWith("https://")
+    ? endpoint
+    : `${BASE_URL}${cleanEndpoint}`;
   const headers = { ...(options.headers || {}) };
 
   // CRITICAL FOR CORS: Only attach Content-Type on requests that have a body (POST, PUT, etc.)
@@ -65,6 +59,9 @@ export async function apiRequest(endpoint, options = {}) {
   try {
     return JSON.parse(text);
   } catch {
+    if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+      throw new Error("Received HTML instead of JSON from API server. Please check backend connection.");
+    }
     return text;
   }
 }

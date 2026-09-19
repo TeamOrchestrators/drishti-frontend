@@ -10,23 +10,23 @@ import { colors, mono } from "../../theme.js";
 import { useExpeditionStore } from "../../store/useExpeditionStore.js";
 
 const statusOptions = [
-  "Draft",
-  "Planned",
-  "Ready",
-  "Active",
-  "Sheltered",
-  "Completed",
-  "Cancelled",
+  { value: "draft", label: "draft" },
+  { value: "planned", label: "planned" },
+  { value: "ready", label: "ready" },
+  { value: "active", label: "active" },
+  { value: "sheltered", label: "sheltered" },
+  { value: "completed", label: "completed" },
+  { value: "cancelled", label: "cancelled" },
 ];
 
 const statusTone = {
-  Active: "ice",
-  Draft: "amber",
-  Planned: "amber",
-  Ready: "amber",
-  Sheltered: "flare",
-  Cancelled: "muted",
-  Completed: "aurora",
+  active: "ice",
+  draft: "amber",
+  planned: "amber",
+  ready: "amber",
+  sheltered: "flare",
+  cancelled: "muted",
+  completed: "aurora",
 };
 
 const getTone = (status) => {
@@ -143,16 +143,54 @@ const Expedition = () => {
   };
 
   const set = (key) => (value) => {
-    setForm((f) => ({
-      ...f,
-      [key]: value,
-    }));
+    setForm((f) => {
+      const next = {
+        ...f,
+        [key]: key === "status" && typeof value === "string" ? value.toLowerCase() : value,
+      };
+      if (key === "start_date" && value && next.end_date && next.end_date < value) {
+        next.end_date = "";
+      }
+      if (key === "end_date" && value && next.start_date && value < next.start_date) {
+        next.end_date = "";
+      }
+      return next;
+    });
   };
 
-  // Open creation modal with completely blank fields — user selects everything manually
+  // Generate next available expedition code (e.g. EXP-8821, EXP-8822, ...)
+  function generateNextExpeditionCode(expList = expeditions) {
+    let maxNum = 8820;
+    const existingCodes = new Set();
+
+    (expList || []).forEach((e) => {
+      const code = (e.expedition_code || e.code || e.id || "").trim();
+      if (code) {
+        existingCodes.add(code.toUpperCase());
+        const match = code.match(/EXP-(\d+)/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) {
+            maxNum = num;
+          }
+        }
+      }
+    });
+
+    let nextNum = maxNum + 1;
+    while (existingCodes.has(`EXP-${nextNum}`)) {
+      nextNum++;
+    }
+    return `EXP-${nextNum}`;
+  }
+
+  // Open creation modal with autofilled expedition code; other fields remain blank for manual entry
   function openCreate() {
     setEditingId(null);
-    setForm(emptyForm);
+    setForm({
+      ...emptyForm,
+      expedition_code: generateNextExpeditionCode(expeditions),
+    });
     setFormError(null);
     setModalOpen(true);
   }
@@ -163,10 +201,19 @@ const Expedition = () => {
     const matchedDest = exp.destination_station_id || apiStations.find(s => s.name === exp.destination_station_name)?.id || "";
     const matchedLeader = exp.team_leader_id || apiPersonnel.find(p => p.full_name === exp.team_lead_name)?.id || "";
 
-    const currentStatus = exp.status ? String(exp.status) : "";
+    const currentStatus = exp.status ? String(exp.status).trim().toLowerCase() : "";
     const foundStatus = statusOptions.find(
-      (opt) => opt.toLowerCase() === currentStatus.toLowerCase()
-    ) || "";
+      (opt) => (typeof opt === "object" ? opt.value : opt).toLowerCase() === currentStatus
+    );
+    const resolvedStatus = foundStatus
+      ? (typeof foundStatus === "object" ? foundStatus.value : foundStatus).toLowerCase()
+      : currentStatus;
+
+    const formattedStart = formatDateInput(exp.start_date || exp.startDate);
+    let formattedEnd = formatDateInput(exp.end_date || exp.endDate);
+    if (formattedStart && formattedEnd && formattedEnd < formattedStart) {
+      formattedEnd = formattedStart;
+    }
 
     setForm({
       expedition_code: exp.expedition_code || exp.id || "",
@@ -174,10 +221,10 @@ const Expedition = () => {
       purpose: exp.purpose || "",
       origin_station_id: matchedOrigin,
       destination_station_id: matchedDest,
-      start_date: formatDateInput(exp.start_date || exp.startDate),
-      end_date: formatDateInput(exp.end_date || exp.endDate),
+      start_date: formattedStart,
+      end_date: formattedEnd,
       team_leader_id: matchedLeader,
-      status: foundStatus,
+      status: resolvedStatus,
     });
     setFormError(null);
     setModalOpen(true);
@@ -211,6 +258,13 @@ const Expedition = () => {
       setFormError("Please select an end date.");
       return;
     }
+
+    const startD = new Date(form.start_date.includes("T") ? form.start_date : `${form.start_date}T00:00:00Z`);
+    const endD = new Date(form.end_date.includes("T") ? form.end_date : `${form.end_date}T00:00:00Z`);
+    if (endD < startD) {
+      setFormError("End date cannot be before start date.");
+      return;
+    }
     if (!form.team_leader_id) {
       setFormError("Please select a team leader.");
       return;
@@ -223,14 +277,13 @@ const Expedition = () => {
     const payload = {
       expedition_code: form.expedition_code.trim(),
       name: form.name.trim(),
-      expedition_name: form.name.trim(),
       purpose: form.purpose.trim(),
       origin_station_id: form.origin_station_id,
       destination_station_id: form.destination_station_id,
       start_date: new Date(form.start_date).toISOString(),
       end_date: new Date(form.end_date).toISOString(),
       team_leader_id: form.team_leader_id,
-      status: form.status,
+      status: (form.status || "").toLowerCase().trim(),
     };
 
     try {
@@ -527,6 +580,7 @@ const Expedition = () => {
                 type="date"
                 value={form.start_date}
                 onChange={set("start_date")}
+                max={form.end_date || undefined}
                 required
               />
               <FormField
@@ -534,6 +588,7 @@ const Expedition = () => {
                 type="date"
                 value={form.end_date}
                 onChange={set("end_date")}
+                min={form.start_date || undefined}
                 required
               />
             </div>
@@ -552,8 +607,8 @@ const Expedition = () => {
               label="Status"
               as="select"
               options={statusOptions}
-              value={form.status}
-              onChange={set("status")}
+              value={form.status ? form.status.toLowerCase() : ""}
+              onChange={(val) => set("status")(typeof val === "string" ? val.toLowerCase() : val)}
               placeholder="Select status..."
               required
             />

@@ -264,7 +264,20 @@ const Cargo = () => {
           if (endDate) {
             updated.estimated_arrival_at = toDateInputValue(endDate);
           }
+          if (
+            updated.planned_dispatch_at &&
+            updated.estimated_arrival_at &&
+            updated.estimated_arrival_at < updated.planned_dispatch_at
+          ) {
+            updated.estimated_arrival_at = "";
+          }
         }
+      }
+      if (key === "planned_dispatch_at" && value && updated.estimated_arrival_at && updated.estimated_arrival_at < value) {
+        updated.estimated_arrival_at = "";
+      }
+      if (key === "estimated_arrival_at" && value && updated.planned_dispatch_at && value < updated.planned_dispatch_at) {
+        updated.estimated_arrival_at = "";
       }
       return updated;
     });
@@ -1076,6 +1089,7 @@ const Cargo = () => {
                 type="date"
                 value={batchForm.planned_dispatch_at}
                 onChange={setB("planned_dispatch_at")}
+                max={batchForm.estimated_arrival_at || undefined}
                 required
               />
               <FormField

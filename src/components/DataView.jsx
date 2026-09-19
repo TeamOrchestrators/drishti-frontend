@@ -8,7 +8,7 @@ export default function DataView() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/data`);
+        const response = await fetch('/api/data');
         if (!response.ok) throw new Error('Failed to fetch');
 
         const jsonData = await response.json();

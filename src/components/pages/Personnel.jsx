@@ -109,7 +109,18 @@ const Personnel = () => {
     fetchAssignmentFormOptions();
   }, [fetchPersonnel, fetchAssignmentFormOptions]);
 
-  const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
+  const set = (key) => (value) => {
+    setForm((f) => {
+      const next = { ...f, [key]: value };
+      if (key === "departure_time" && value && next.arrival_time && next.arrival_time < value) {
+        next.arrival_time = "";
+      }
+      if (key === "arrival_time" && value && next.departure_time && value < next.departure_time) {
+        next.arrival_time = "";
+      }
+      return next;
+    });
+  };
 
   // Helper to resolve station names from live API stations
   const resolveStation = (id) => {
@@ -336,7 +347,7 @@ const Personnel = () => {
     const depDate = new Date(form.departure_time.includes("T") ? form.departure_time : `${form.departure_time}T00:00:00Z`);
     const arrDate = new Date(form.arrival_time.includes("T") ? form.arrival_time : `${form.arrival_time}T00:00:00Z`);
     if (arrDate < depDate) {
-      setFormError("Arrival time must not be before departure time.");
+      setFormError("Arrival date cannot be before departure date.");
       return;
     }
 
@@ -657,6 +668,7 @@ const Personnel = () => {
                 type="date"
                 value={form.departure_time}
                 onChange={set("departure_time")}
+                max={form.arrival_time || undefined}
                 required
               />
               <FormField

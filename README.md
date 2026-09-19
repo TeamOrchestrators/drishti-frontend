@@ -63,7 +63,6 @@ polar-ops-frontend/
 │   │   ├── layout/         # Navigation header and sidebar
 │   │   ├── pages/          # Primary application views
 │   │   └── ui/             # Reusable UI primitives (Panel, Pill, Modal, FormField, etc.)
-│   ├── data/               # Reference and mock data definitions
 │   ├── services/           # API client and backend service integrations
 │   ├── store/              # Zustand state management stores
 │   ├── theme.js            # Design tokens, color palette, and typography rules

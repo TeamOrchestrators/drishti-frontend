@@ -18,17 +18,30 @@ if (typeof window !== "undefined" && maplibregl.setWorkerUrl && maplibreWorkerUr
 const OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 /**
+ * Calculates haversine distance in meters between two coordinates.
+ */
+function getDistanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371e3;
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/**
  * Creates a GeoJSON Polygon approximating a geodesic circle on Earth
  * using spherical trigonometry.
- *
- * @param {[number, number]} center [longitude, latitude]
- * @param {number} radiusInMeters Radius in meters
- * @param {number} points Number of polygon vertices (default 64)
  */
 function createGeoJSONCircle(center, radiusInMeters, points = 64) {
   const [lng, lat] = center;
   const coordinates = [];
-  const earthRadius = 6378137; // WGS84 equatorial radius in meters
+  const earthRadius = 6378137;
   const dByR = radiusInMeters / earthRadius;
   const latRad = (lat * Math.PI) / 180;
   const lngRad = (lng * Math.PI) / 180;
@@ -88,13 +101,78 @@ function formatTimestamp(ts) {
   }
 }
 
+function generatePopupHtml(emergency, lat, lng, accuracyMeters, pointsCount) {
+  return `
+    <div style="font-family: inherit; font-size: 12px; line-height: 1.45; color: #0f172a; min-width: 220px; max-width: 290px; padding: 2px;">
+      <div style="font-weight: 700; color: #dc2626; font-size: 13px; margin-bottom: 2px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+        <span style="font-family: monospace; font-size: 12px; font-weight: 800; letter-spacing: 0.02em;">${escapeHtml(
+          emergency?.emergency_code || emergency?.id || "INCIDENT"
+        )}</span>
+        <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: #fee2e2; color: #991b1b; text-transform: uppercase;">
+          ${escapeHtml(emergency?.status || "Active")}
+        </span>
+      </div>
+      <div style="font-weight: 600; color: #1e293b; margin-bottom: 6px; font-size: 12px;">
+        ${escapeHtml(emergency?.summary || emergency?.emergency_type || "Emergency incident")}
+      </div>
+      <div style="border-top: 1px solid #e2e8f0; padding-top: 6px; display: grid; gap: 4px; font-size: 11px;">
+        <div>
+          <span style="color: #64748b;">Reporting Personnel:</span>
+          <strong style="color: #0f172a; margin-left: 4px;">${escapeHtml(
+            emergency?.reported_by_name || "Unassigned"
+          )}</strong>
+        </div>
+        <div>
+          <span style="color: #64748b;">Device Label:</span>
+          <code style="font-family: monospace; background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-size: 10.5px; color: #334155; margin-left: 4px;">${escapeHtml(
+            emergency?.device_label || "—"
+          )}</code>
+        </div>
+        <div>
+          <span style="color: #64748b;">Live Coordinates:</span>
+          <code style="font-family: monospace; font-size: 10.5px; margin-left: 4px; color: #0284c7;">${lat.toFixed(
+            6
+          )}°, ${lng.toFixed(6)}°</code>
+        </div>
+        <div>
+          <span style="color: #64748b;">GPS Accuracy:</span>
+          <span style="font-weight: 600; color: #0f172a; margin-left: 4px;">±${accuracyMeters} m</span>
+        </div>
+        <div>
+          <span style="color: #64748b;">Last Heartbeat:</span>
+          <span style="color: #334155; margin-left: 4px;">${formatTimestamp(
+            emergency?.last_heartbeat_at
+          )}</span>
+        </div>
+        ${
+          pointsCount > 1
+            ? `<div>
+                <span style="color: #64748b;">Telemetry Trail:</span>
+                <span style="font-weight: 600; color: #d97706; margin-left: 4px;">${pointsCount} waypoints recorded</span>
+              </div>`
+            : ""
+        }
+      </div>
+    </div>
+  `;
+}
+
 export default function EmergencyMap({ emergency }) {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
+  const markerRef = useRef(null);
+  const popupRef = useRef(null);
+
+  // Movement & Annotation tracking refs
+  const trackPointsRef = useRef([]);
+  const lastCoordsRef = useRef({ lng: null, lat: null });
+
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [mapLoaded, setMapLoaded] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [movementAnnotation, setMovementAnnotation] = useState(null);
+  const [trackCount, setTrackCount] = useState(1);
 
   const rawLat = Number(emergency?.latitude);
   const rawLng = Number(emergency?.longitude);
@@ -112,7 +190,7 @@ export default function EmergencyMap({ emergency }) {
     !isNaN(Number(emergency.location_accuracy_m)) &&
     Number(emergency.location_accuracy_m) > 0
       ? Number(emergency.location_accuracy_m)
-      : 15; // default reasonable fallback radius if missing
+      : 15;
 
   const handleRetry = useCallback(() => {
     setHasError(false);
@@ -121,6 +199,56 @@ export default function EmergencyMap({ emergency }) {
     setRetryCount((prev) => prev + 1);
   }, []);
 
+  // Update GeoJSON layers (accuracy circle, movement track, waypoint dots)
+  const updateGeoJsonLayers = useCallback((map, lng, lat, accuracy, trackPoints) => {
+    if (!map || !map.isStyleLoaded()) return;
+
+    // 1. Update Accuracy Circle
+    const circleSource = map.getSource("emergency-accuracy-circle");
+    if (circleSource) {
+      circleSource.setData(createGeoJSONCircle([lng, lat], accuracy, 64));
+    }
+
+    // 2. Update Movement Track Line
+    const trackSource = map.getSource("emergency-movement-track");
+    if (trackSource) {
+      const coords = trackPoints.map((p) => [p.lng, p.lat]);
+      trackSource.setData({
+        type: "Feature",
+        geometry: {
+          type: "LineString",
+          coordinates: coords.length > 1 ? coords : [],
+        },
+        properties: {},
+      });
+    }
+
+    // 3. Update Movement Waypoint Points
+    const pointsSource = map.getSource("emergency-movement-points");
+    if (pointsSource) {
+      const pointFeatures = trackPoints.slice(0, -1).map((p, idx) => ({
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [p.lng, p.lat],
+        },
+        properties: {
+          title: `Waypoint #${idx + 1}`,
+          timestamp: p.timestamp,
+          accuracy: p.accuracy,
+          coordsFormatted: `${p.lat.toFixed(6)}°, ${p.lng.toFixed(6)}°`,
+        },
+      }));
+
+      pointsSource.setData({
+        type: "FeatureCollection",
+        features: pointFeatures,
+      });
+    }
+  }, []);
+
+  // 1. MAP INITIALIZATION EFFECT — ONLY RUNS ONCE ON MOUNT (or on retry)
+  // Does NOT reload map on heartbeat or location change!
   useEffect(() => {
     if (!isValidCoords || !mapContainerRef.current) return;
 
@@ -128,8 +256,20 @@ export default function EmergencyMap({ emergency }) {
     let resizeObserver = null;
 
     try {
+      // Seed initial track point
+      if (trackPointsRef.current.length === 0) {
+        trackPointsRef.current = [
+          {
+            lng: rawLng,
+            lat: rawLat,
+            timestamp: emergency?.last_heartbeat_at || new Date().toISOString(),
+            accuracy: accuracyMeters,
+          },
+        ];
+        lastCoordsRef.current = { lng: rawLng, lat: rawLat };
+      }
+
       // Initialize MapLibre GL instance
-      // Longitude MUST always come first in center: [lng, lat]
       map = new maplibregl.Map({
         container: mapContainerRef.current,
         style: OPENFREEMAP_STYLE,
@@ -139,7 +279,7 @@ export default function EmergencyMap({ emergency }) {
       });
       mapInstanceRef.current = map;
 
-      // Add navigation controls (zoom in/out, compass reset)
+      // Add navigation controls
       map.addControl(
         new maplibregl.NavigationControl({
           showCompass: true,
@@ -169,52 +309,14 @@ export default function EmergencyMap({ emergency }) {
         }
       });
 
-      // Construct popup content
-      const popupHtml = `
-        <div style="font-family: inherit; font-size: 12px; line-height: 1.45; color: #0f172a; min-width: 220px; max-width: 290px; padding: 2px;">
-          <div style="font-weight: 700; color: #dc2626; font-size: 13px; margin-bottom: 2px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-            <span style="font-family: monospace; font-size: 12px; font-weight: 800; letter-spacing: 0.02em;">${escapeHtml(
-              emergency.emergency_code || emergency.id || "INCIDENT"
-            )}</span>
-            <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: #fee2e2; color: #991b1b; text-transform: uppercase;">
-              ${escapeHtml(emergency.status || "Active")}
-            </span>
-          </div>
-          <div style="font-weight: 600; color: #1e293b; margin-bottom: 6px; font-size: 12px;">
-            ${escapeHtml(emergency.summary || emergency.emergency_type || "Emergency incident")}
-          </div>
-          <div style="border-top: 1px solid #e2e8f0; padding-top: 6px; display: grid; gap: 4px; font-size: 11px;">
-            <div>
-              <span style="color: #64748b;">Reporting Personnel:</span>
-              <strong style="color: #0f172a; margin-left: 4px;">${escapeHtml(
-                emergency.reported_by_name || "Unassigned"
-              )}</strong>
-            </div>
-            <div>
-              <span style="color: #64748b;">Device Label:</span>
-              <code style="font-family: monospace; background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-size: 10.5px; color: #334155; margin-left: 4px;">${escapeHtml(
-                emergency.device_label || "—"
-              )}</code>
-            </div>
-            <div>
-              <span style="color: #64748b;">Coordinates:</span>
-              <code style="font-family: monospace; font-size: 10.5px; margin-left: 4px; color: #0284c7;">${rawLat.toFixed(
-                6
-              )}°, ${rawLng.toFixed(6)}°</code>
-            </div>
-            <div>
-              <span style="color: #64748b;">GPS Accuracy:</span>
-              <span style="font-weight: 600; color: #0f172a; margin-left: 4px;">±${accuracyMeters} m</span>
-            </div>
-            <div>
-              <span style="color: #64748b;">Last Heartbeat:</span>
-              <span style="color: #334155; margin-left: 4px;">${formatTimestamp(
-                emergency.last_heartbeat_at
-              )}</span>
-            </div>
-          </div>
-        </div>
-      `;
+      // Construct popup
+      const popupHtml = generatePopupHtml(
+        emergency,
+        rawLat,
+        rawLng,
+        accuracyMeters,
+        trackPointsRef.current.length
+      );
 
       const popup = new maplibregl.Popup({
         offset: [0, -10],
@@ -222,13 +324,14 @@ export default function EmergencyMap({ emergency }) {
         closeOnClick: false,
         maxWidth: "320px",
       }).setHTML(popupHtml);
+      popupRef.current = popup;
 
       // Create custom pulsing red marker element
       const markerEl = document.createElement("div");
       markerEl.className = "emergency-pulse-marker";
       markerEl.setAttribute(
         "title",
-        `Emergency Location: ${emergency.emergency_code || "Incident"}`
+        `Emergency Location: ${emergency?.emergency_code || "Incident"}`
       );
       markerEl.innerHTML = `
         <div class="marker-pulse-ring"></div>
@@ -244,21 +347,17 @@ export default function EmergencyMap({ emergency }) {
         .setPopup(popup)
         .addTo(map);
 
-      // Once map loads style, add accuracy circle
+      markerRef.current = marker;
+
+      // On map load, register sources and layers for accuracy and telemetry track
       map.on("load", () => {
         setMapLoaded(true);
 
-        // Add translucent red accuracy circle GeoJSON polygon
-        const circleData = createGeoJSONCircle(
-          [rawLng, rawLat],
-          accuracyMeters,
-          64
-        );
-
+        // 1. Accuracy Circle source & layers
         if (!map.getSource("emergency-accuracy-circle")) {
           map.addSource("emergency-accuracy-circle", {
             type: "geojson",
-            data: circleData,
+            data: createGeoJSONCircle([rawLng, rawLat], accuracyMeters, 64),
           });
 
           map.addLayer({
@@ -267,7 +366,7 @@ export default function EmergencyMap({ emergency }) {
             source: "emergency-accuracy-circle",
             paint: {
               "fill-color": "#ef4444",
-              "fill-opacity": 0.18,
+              "fill-opacity": 0.16,
             },
           });
 
@@ -277,15 +376,114 @@ export default function EmergencyMap({ emergency }) {
             source: "emergency-accuracy-circle",
             paint: {
               "line-color": "#dc2626",
-              "line-width": 1.75,
+              "line-width": 1.5,
               "line-opacity": 0.7,
               "line-dasharray": [2, 1],
             },
           });
         }
+
+        // 2. Movement Track source & layers (connects heartbeats when location moves)
+        if (!map.getSource("emergency-movement-track")) {
+          map.addSource("emergency-movement-track", {
+            type: "geojson",
+            data: {
+              type: "Feature",
+              geometry: {
+                type: "LineString",
+                coordinates:
+                  trackPointsRef.current.length > 1
+                    ? trackPointsRef.current.map((p) => [p.lng, p.lat])
+                    : [],
+              },
+              properties: {},
+            },
+          });
+
+          // Casing for contrast against snow / terrain
+          map.addLayer({
+            id: "emergency-movement-track-casing",
+            type: "line",
+            source: "emergency-movement-track",
+            paint: {
+              "line-color": "#0f172a",
+              "line-width": 4.5,
+              "line-opacity": 0.65,
+            },
+          });
+
+          // Vibrant dashed track line
+          map.addLayer({
+            id: "emergency-movement-track-line",
+            type: "line",
+            source: "emergency-movement-track",
+            paint: {
+              "line-color": "#f97316", // Amber-orange tracking trail
+              "line-width": 2.5,
+              "line-opacity": 0.95,
+              "line-dasharray": [2, 1.5],
+            },
+          });
+        }
+
+        // 3. Movement Waypoints source & layers (dots at each previous heartbeat)
+        if (!map.getSource("emergency-movement-points")) {
+          map.addSource("emergency-movement-points", {
+            type: "geojson",
+            data: {
+              type: "FeatureCollection",
+              features: [],
+            },
+          });
+
+          map.addLayer({
+            id: "emergency-movement-points-circle",
+            type: "circle",
+            source: "emergency-movement-points",
+            paint: {
+              "circle-radius": 4,
+              "circle-color": "#f59e0b",
+              "circle-stroke-width": 1.5,
+              "circle-stroke-color": "#ffffff",
+              "circle-opacity": 0.9,
+            },
+          });
+
+          // Waypoint click popup
+          map.on("click", "emergency-movement-points-circle", (e) => {
+            const coordinates = e.features[0].geometry.coordinates.slice();
+            const props = e.features[0].properties;
+            new maplibregl.Popup({ offset: [0, -5], closeButton: true })
+              .setLngLat(coordinates)
+              .setHTML(`
+                <div style="font-size:11px; font-family:sans-serif; padding:2px; min-width:140px;">
+                  <strong style="color:#d97706;">${escapeHtml(props.title)}</strong>
+                  <div style="color:#64748b; font-size:10px; margin-top:2px;">${formatTimestamp(props.timestamp)}</div>
+                  <div style="color:#0284c7; font-family:monospace; font-size:10px; margin-top:2px;">${escapeHtml(props.coordsFormatted)}</div>
+                </div>
+              `)
+              .addTo(map);
+          });
+
+          map.on("mouseenter", "emergency-movement-points-circle", () => {
+            map.getCanvas().style.cursor = "pointer";
+          });
+          map.on("mouseleave", "emergency-movement-points-circle", () => {
+            map.getCanvas().style.cursor = "";
+          });
+        }
+
+        // Apply current track
+        updateGeoJsonLayers(
+          map,
+          rawLng,
+          rawLat,
+          accuracyMeters,
+          trackPointsRef.current
+        );
       });
 
-      // Observe container resize to trigger map.resize() smoothly
+      // ResizeObserver
       resizeObserver = new ResizeObserver(() => {
         if (mapInstanceRef.current) {
           mapInstanceRef.current.resize();
@@ -293,7 +491,6 @@ export default function EmergencyMap({ emergency }) {
       });
       resizeObserver.observe(mapContainerRef.current);
 
-      // Ensure canvas is properly sized after DOM expansion
       setTimeout(() => {
         if (mapInstanceRef.current) {
           mapInstanceRef.current.resize();
@@ -305,7 +502,7 @@ export default function EmergencyMap({ emergency }) {
       setErrorMessage(err.message || "Failed to initialize map engine.");
     }
 
-    // Comprehensive cleanup when component unmounts or card closes
+    // Cleanup ONLY runs on unmount or retry — NEVER on periodic heartbeat!
     return () => {
       if (resizeObserver) {
         resizeObserver.disconnect();
@@ -318,8 +515,93 @@ export default function EmergencyMap({ emergency }) {
         }
         mapInstanceRef.current = null;
       }
+      markerRef.current = null;
+      popupRef.current = null;
     };
-  }, [isValidCoords, rawLat, rawLng, accuracyMeters, retryCount, emergency]);
+  }, [isValidCoords, retryCount]); // <-- STRICTLY STABLE DEPENDENCIES!
+
+  // 2. HEARTBEAT & LOCATION UPDATE EFFECT — ANNOTATES MAP WITHOUT RELOADING
+  useEffect(() => {
+    if (!isValidCoords || !mapInstanceRef.current) return;
+
+    const map = mapInstanceRef.current;
+    const prev = lastCoordsRef.current;
+    const isFirstCoord = prev.lng === null || prev.lat === null;
+
+    // Check if coordinates have moved (threshold: ~1 meter / 0.00001 deg)
+    const hasMoved =
+      !isFirstCoord &&
+      (Math.abs(prev.lng - rawLng) > 0.00001 ||
+        Math.abs(prev.lat - rawLat) > 0.00001);
+
+    if (isFirstCoord || hasMoved) {
+      let distanceMoved = 0;
+      if (hasMoved) {
+        distanceMoved = Math.round(
+          getDistanceMeters(prev.lat, prev.lng, rawLat, rawLng)
+        );
+      }
+
+      lastCoordsRef.current = { lng: rawLng, lat: rawLat };
+
+      // Append new coordinate to movement history trail
+      const newPoint = {
+        lng: rawLng,
+        lat: rawLat,
+        timestamp: emergency?.last_heartbeat_at || new Date().toISOString(),
+        accuracy: accuracyMeters,
+      };
+
+      trackPointsRef.current = [...trackPointsRef.current, newPoint];
+      setTrackCount(trackPointsRef.current.length);
+
+      // Show temporary movement annotation badge on map
+      if (hasMoved && distanceMoved > 0) {
+        setMovementAnnotation(`Device moved +${distanceMoved}m • Telemetry updated`);
+        const timer = setTimeout(() => {
+          setMovementAnnotation(null);
+        }, 5000);
+        return () => clearTimeout(timer);
+      }
+    }
+
+    // Smoothly update marker position without reloading map
+    if (markerRef.current) {
+      markerRef.current.setLngLat([rawLng, rawLat]);
+    }
+
+    // Update popup HTML content with latest data
+    if (popupRef.current) {
+      popupRef.current.setHTML(
+        generatePopupHtml(
+          emergency,
+          rawLat,
+          rawLng,
+          accuracyMeters,
+          trackPointsRef.current.length
+        )
+      );
+    }
+
+    // Smoothly ease camera to new position when location moves (does not reset zoom!)
+    if (hasMoved) {
+      map.easeTo({
+        center: [rawLng, rawLat],
+        duration: 900,
+      });
+    }
+
+    // Update GeoJSON track line, accuracy circle, and waypoint annotations
+    if (map.isStyleLoaded()) {
+      updateGeoJsonLayers(
+        map,
+        rawLng,
+        rawLat,
+        accuracyMeters,
+        trackPointsRef.current
+      );
+    }
+  }, [isValidCoords, rawLat, rawLng, accuracyMeters, emergency, updateGeoJsonLayers]);
 
   if (!isValidCoords) {
     return (
@@ -407,6 +689,21 @@ export default function EmergencyMap({ emergency }) {
       >
         <div ref={mapContainerRef} className="w-full h-full" />
 
+        {/* Live Movement Annotation Banner on Map */}
+        {movementAnnotation && (
+          <div
+            className="absolute bottom-3 left-3 z-20 flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-mono shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-2"
+            style={{
+              background: "rgba(15, 23, 42, 0.88)",
+              color: colors.aurora,
+              border: `1px solid ${colors.auroraDim}`,
+            }}
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span>{movementAnnotation}</span>
+          </div>
+        )}
+
         {/* Inline Error Notice */}
         {hasError && (
           <div
@@ -439,7 +736,7 @@ export default function EmergencyMap({ emergency }) {
           </div>
         )}
 
-        {/* Loading Spinner overlay before style is ready */}
+        {/* Loading Spinner overlay before initial style is ready */}
         {!mapLoaded && !hasError && (
           <div
             className="absolute top-2 left-2 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs backdrop-blur-md shadow-sm"
@@ -450,19 +747,31 @@ export default function EmergencyMap({ emergency }) {
             }}
           >
             <RefreshCw size={11} className="animate-spin" style={{ color: colors.ice }} />
-            <span style={{ fontSize: "11px" }}>Loading map...</span>
+            <span style={{ fontSize: "11px" }}>Initializing map...</span>
           </div>
         )}
       </div>
 
-      {/* Required Subtitle & Telemetry Notice */}
+      {/* Subtitle & Telemetry Trail Status */}
       <div
         className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] px-0.5"
         style={{ color: colors.textFaint }}
       >
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
           <Radio size={12} className="flex-shrink-0" style={{ color: colors.ice }} />
-          <span className="truncate">Location from last HTTP device heartbeat</span>
+          <span className="truncate">Live telemetry stream (persists across heartbeats)</span>
+          {trackCount > 1 && (
+            <span
+              className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium"
+              style={{
+                background: colors.amberBg,
+                color: colors.amber,
+                border: `1px solid ${colors.amberDim}`,
+              }}
+            >
+              {trackCount} fixes tracked
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3 self-end sm:self-auto flex-shrink-0">
           {emergency.location_accuracy_m != null && (
