@@ -7,6 +7,7 @@ import { useCargoStore } from "../../store/useCargoStore.js";
 import { useInventoryStore, selectInventoryAlertCount } from "../../store/useInventoryStore.js";
 import { useEmergencyStore } from "../../store/useEmergencyStore.js";
 import { colors } from "../../theme.js";
+import drishtiLogo from "../../assets/logo.png";
 
 const Sidebar = ({ mobileOpen, setMobileOpen }) => {
   const location = useLocation();
@@ -104,7 +105,7 @@ const Sidebar = ({ mobileOpen, setMobileOpen }) => {
     >
       <div className="flex items-center gap-2.5 min-w-0">
         <div>
-          <img className="w-40 h-auto" src={"/src/assets/logo.png"} alt="Drishti logo" />
+          <img className="w-40 h-auto" src={drishtiLogo} alt="Drishti logo" />
         </div>
         <div className="min-w-0">
           <div className="text-sm font-semibold tracking-wide" style={{ color: colors.text }}>DRISHTI</div>
