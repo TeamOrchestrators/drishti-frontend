@@ -2,7 +2,9 @@ import { create } from "zustand";
 import { expeditionsApi, inventoryApi, BHARTI_STATION_ID } from "../services/api";
 
 export const useInventoryStore = create((set, get) => ({
-  bhartiStationId: BHARTI_STATION_ID,
+  // Resolve the ID from the live backend instead of carrying a UUID from a
+  // previous database seed into a fresh deployment.
+  bhartiStationId: null,
   items: [],
   history: [],
   alerts: [],
@@ -49,7 +51,10 @@ export const useInventoryStore = create((set, get) => ({
         ? customStationId.trim()
         : null;
 
-    let stationId = targetId || get().bhartiStationId || BHARTI_STATION_ID;
+    let stationId = targetId || get().bhartiStationId;
+    if (!stationId) {
+      stationId = await get().resolveBhartiStationId();
+    }
 
     set({ loading: true, error: null });
     try {

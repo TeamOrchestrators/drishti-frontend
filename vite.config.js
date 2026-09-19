@@ -5,7 +5,9 @@ import tailwindcss from "@tailwindcss/vite";
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const rawTarget = env.VITE_API_URL || "https://530a-2401-4900-aac3-b046-5417-c348-6428-4fed.ngrok-free.app";
+  // Development only. Production requests stay relative and are proxied by
+  // Vercel through vercel.json, so no ngrok or EC2 URL is baked into the UI.
+  const rawTarget = env.VITE_API_URL || "http://localhost:8080";
   const target = rawTarget.replace(/\/+$/, "");
 
   const proxyConfig = {
@@ -25,13 +27,11 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
     server: {
-      allowedHosts: ['stump-vitamins-talisman.ngrok-free.dev'],
       proxy: {
         "/api": proxyConfig,
       },
     },
     preview: {
-      allowedHosts: ['stump-vitamins-talisman.ngrok-free.dev'],
       proxy: {
         "/api": proxyConfig,
       },

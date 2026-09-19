@@ -1,6 +1,8 @@
 // When in development, relative /api requests route through Vite's local dev server proxy.
 // Same-origin requests avoid CORS preflight and access-control errors.
-// In production or when VITE_FORCE_DIRECT_URL is true, VITE_API_URL is used directly.
+// In production, leave VITE_API_URL unset so requests remain relative. Vercel
+// proxies /api/* to EC2, keeping the browser on HTTPS and avoiding CORS.
+// VITE_FORCE_DIRECT_URL remains available only for deliberate local debugging.
 const isDev = import.meta.env.DEV;
 const configuredUrl = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
