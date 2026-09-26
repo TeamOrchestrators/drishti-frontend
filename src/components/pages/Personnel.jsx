@@ -1,6 +1,17 @@
-import { useMemo, useState, useEffect } from "react";
+import {useMemo, useState, useEffect, useCallback} from "react";
 import { colors, mono } from "../../theme";
-import { Plus, History, UserCheck, Search, RefreshCw, AlertCircle } from "lucide-react";
+import {
+  Plus,
+  History,
+  Search,
+  RefreshCw,
+  AlertCircle,
+  MapPin,
+  ArrowRight,
+  Navigation,
+  ChevronRight,
+  X,
+} from "lucide-react";
 import Panel from "../ui/Panel";
 import Pill from "../ui/Pill";
 import SectionHeading from "../ui/SectionHeading";
@@ -9,6 +20,7 @@ import Modal from "../ui/Modal.jsx";
 import { TableSkeleton, ListSkeleton } from "../ui/Skeleton.jsx";
 import { usePersonnelStore } from "../../store/usePersonnelStore.js";
 import { useExpeditionStore } from "../../store/useExpeditionStore.js";
+import PersonnelDrawer from "../personnel/PersonnelDrawer.jsx";
 
 function formatStatus(status) {
   if (!status) return "—";
@@ -22,31 +34,34 @@ function formatStatus(status) {
 function statusTone(status) {
   if (!status) return "ice";
   const s = String(status).toLowerCase();
-  if (s === "waiting_for_weather" || s === "planned") return "amber";
-  if (s === "arrived_safely" || s === "cleared" || s === "completed" || s === "available" || s === "active") return "aurora";
-  if (s === "on_leave" || s === "leave" || s === "inactive" || s === "off_duty") return "muted";
+  if (s === "waiting_for_weather" || s === "planned" || s === "in_transit") return "amber";
+  if (s === "arrived_safely" || s === "cleared" || s === "completed" || s === "available" || s === "active" || s === "arrived") return "aurora";
+  if (s === "on_leave" || s === "leave" || s === "inactive" || s === "off_duty" || s === "cancelled") return "muted";
   return "ice";
 }
 
-function getPersonnelStatus(p, isBusy) {
-  if (isBusy) {
-    return { label: "On a movement", tone: "amber" };
+function getPersonnelStatusBadge(person) {
+  if (person.isInTransit) {
+    return {label: "In transit", tone: "amber"};
   }
-  const raw = String(p.status || p.duty_status || p.assignment_status || "").trim().toLowerCase();
-  if (raw === "assigned" || raw === "on_duty" || Boolean(p.is_assigned)) {
-    return { label: "Assigned", tone: "ice" };
+  const raw = String(person.status || "").trim().toLowerCase();
+  if (raw === "available" || raw === "active" || !raw) {
+    return {label: "Available", tone: "aurora"};
   }
-  if (raw === "on_leave" || raw === "leave") {
-    return { label: "On leave", tone: "muted" };
+  if (raw === "assigned" || raw === "on_duty" || Boolean(person.is_assigned)) {
+    return {label: "Stationed / Assigned", tone: "ice"};
+  }
+  if (raw === "in_transit" || raw === "moving") {
+    return {label: "In transit", tone: "amber"};
   }
   if (raw === "inactive" || raw === "off_duty") {
     return { label: "Inactive", tone: "muted" };
   }
+  if (raw === "unavailable" || raw === "leave" || raw === "on_leave") {
+    return {label: "Unavailable", tone: "muted"};
+  }
   if (raw === "medical_hold" || raw === "hold") {
     return { label: "Medical hold", tone: "flare" };
-  }
-  if (raw === "available" || raw === "active" || !raw) {
-    return { label: "Available", tone: "aurora" };
   }
   return { label: formatStatus(raw), tone: statusTone(raw) };
 }
@@ -66,6 +81,15 @@ function formatDisplayDateTime(d) {
   } catch {
     return d;
   }
+}
+
+function getInitials(name) {
+  if (!name) return "??";
+  const cleaned = name.replace(/^(Dr\.|Prof\.|Mr\.|Ms\.|Mrs\.)\s+/i, "").trim();
+  const parts = cleaned.split(/\s+/);
+  if (parts.length === 0 || !parts[0]) return "??";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 const emptyForm = {
@@ -103,6 +127,8 @@ const Personnel = () => {
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState(null);
   const [search, setSearch] = useState("");
+  const [locationFilter, setLocationFilter] = useState("all");
+  const [selectedPerson, setSelectedPerson] = useState(null);
 
   useEffect(() => {
     fetchPersonnel();
@@ -123,11 +149,11 @@ const Personnel = () => {
   };
 
   // Helper to resolve station names from live API stations
-  const resolveStation = (id) => {
+  const resolveStation = useCallback((id) => {
     if (!id) return "—";
     const found = liveStations.find((s) => s.id === id);
     return found ? found.name : id;
-  };
+  }, [liveStations]);
 
   // Expeditions list from formOptions or live store
   const availableExpeditions = useMemo(() => {
@@ -159,7 +185,7 @@ const Personnel = () => {
     }
 
     return opts;
-  }, [liveStations, availableExpeditions, form.expedition_id, form.origin_station_id, form.destination_station_id]);
+  }, [liveStations, availableExpeditions, form.expedition_id, form.origin_station_id, form.destination_station_id, resolveStation]);
 
   // Expedition dropdown options from API formOptions or live store
   const expeditionOptions = useMemo(() => {
@@ -209,7 +235,7 @@ const Personnel = () => {
           const s = (m.movement_status || m.status || "").toLowerCase();
           return s === "in_transit" || s === "waiting_for_weather" || s === "planned";
         })
-        .map((m) => m.personnel_id || m.personnelId || m.person_id)
+        .map((m) => m.personnel_id || m.personnelId || m.person_id || m.id)
         .filter(Boolean)
     );
   }, [movingPersonnel]);
@@ -221,26 +247,29 @@ const Personnel = () => {
           const s = (m.movement_status || m.status || "").toLowerCase();
           return s === "in_transit" || s === "waiting_for_weather" || s === "planned";
         })
-        .map((m) => m.personnel_name || m.full_name || m.name)
+        .map((m) => (m.personnel_name || m.full_name || m.name || "").trim().toLowerCase())
         .filter(Boolean)
     );
   }, [movingPersonnel]);
 
-  // Personnel dropdown options: provides the full roster so all staff can be selected for assignment
+  // Personnel dropdown options for assignment modal
   const personnelDropdownOptions = useMemo(() => {
     const map = new Map();
     (totalPersonnel || []).forEach((p) => {
-      if (p && p.id) map.set(p.id, p);
+      const id = p.personnel_id || p.id;
+      if (id) map.set(id, p);
     });
     (formOptions.personnel || []).forEach((p) => {
-      if (p && p.id && !map.has(p.id)) map.set(p.id, p);
+      const id = p.personnel_id || p.id;
+      if (id && !map.has(id)) map.set(id, p);
     });
 
     const allList = Array.from(map.values());
 
     return allList.map((p) => {
+      const id = p.personnel_id || p.id;
       const personName = p.full_name || p.name || "Personnel";
-      const isBusy = busyPersonIds.has(p.id) || busyPersonNames.has(personName);
+      const isBusy = busyPersonIds.has(id) || busyPersonNames.has(personName.toLowerCase());
       const rawStatus = String(p.status || p.duty_status || p.assignment_status || "").trim().toLowerCase();
       const isAssigned = rawStatus === "assigned" || Boolean(p.is_assigned);
 
@@ -252,7 +281,7 @@ const Personnel = () => {
       }
 
       return {
-        value: p.id,
+        value: id,
         label: `${personName} (${p.role || p.personnel_code || "Personnel"})${statusTag}`,
       };
     });
@@ -290,25 +319,182 @@ const Personnel = () => {
     });
   }, [formOptions]);
 
-  // Filtered roster based on search input
+  // Construct unified personnel roster merging total_personnel and moving_personnel
+  const unifiedRoster = useMemo(() => {
+    const map = new Map();
+
+    const movingByPersonId = new Map();
+    const movingByName = new Map();
+
+    movingPersonnel.forEach((m) => {
+      const id = m.personnel_id || m.id;
+      const name = (m.name || m.full_name || m.personnel_name || "").trim();
+      if (id) movingByPersonId.set(id, m);
+      if (name) movingByName.set(name.toLowerCase(), m);
+    });
+
+    // Ingest totalPersonnel
+    totalPersonnel.forEach((p) => {
+      const id = p.personnel_id || p.id;
+      const name = (p.name || p.full_name || p.personnel_name || "Personnel").trim();
+      const activeMov = (id && movingByPersonId.get(id)) || movingByName.get(name.toLowerCase()) || null;
+      const isInTransit = Boolean(activeMov);
+      const station = p.current_station || p.current_station_name || resolveStation(p.current_station_id) || "";
+
+      const key = id || name;
+      map.set(key, {
+        ...p,
+        personnel_id: id,
+        name,
+        role: p.role || (activeMov && activeMov.role) || "Station Staff",
+        current_station: station,
+        isInTransit,
+        activeMovement: activeMov,
+        status: isInTransit ? (activeMov.status || activeMov.movement_status || "in_transit") : (p.status || "available"),
+        personnel_code: p.personnel_code || (id ? id.slice(0, 8) : ""),
+        rawPerson: p,
+      });
+    });
+
+    // Ingest any staff in movingPersonnel that were not listed in totalPersonnel
+    movingPersonnel.forEach((m) => {
+      const id = m.personnel_id || m.id;
+      const name = (m.name || m.full_name || m.personnel_name || "Personnel").trim();
+      const key = id || name;
+      if (!map.has(key) && !movingByName.has(name.toLowerCase())) {
+        map.set(key, {
+          ...m,
+          personnel_id: id,
+          name,
+          role: m.role || "Station Staff",
+          current_station: m.current_station || "",
+          isInTransit: true,
+          activeMovement: m,
+          status: m.status || m.movement_status || "in_transit",
+          personnel_code: m.personnel_code || (id ? id.slice(0, 8) : ""),
+          rawPerson: m,
+        });
+      }
+    });
+
+    return Array.from(map.values());
+  }, [totalPersonnel, movingPersonnel, resolveStation]);
+
+  // Compute counts for location chips according to requirements:
+  // - "In transit" derived from moving_personnel
+  // - "India HQ", "Bharti", "Maitri" derived from total_personnel.current_station
+  const filterCounts = useMemo(() => {
+    let allCount = unifiedRoster.length;
+    let inTransitCount = 0;
+    let indiaCount = 0;
+    let bhartiCount = 0;
+    let maitriCount = 0;
+
+    unifiedRoster.forEach((p) => {
+      if (p.isInTransit) {
+        inTransitCount++;
+      } else {
+        const station = (p.current_station || "").toLowerCase();
+        if (station.includes("india") || station.includes("hq")) {
+          indiaCount++;
+        } else if (station.includes("bharti")) {
+          bhartiCount++;
+        } else if (station.includes("maitri")) {
+          maitriCount++;
+        }
+      }
+    });
+
+    return {
+      all: allCount,
+      india_hq: indiaCount,
+      bharti: bhartiCount,
+      maitri: maitriCount,
+      in_transit: inTransitCount,
+    };
+  }, [unifiedRoster]);
+
+  const filterChips = [
+    {id: "all", label: "All staff", count: filterCounts.all},
+    {id: "india_hq", label: "India HQ", count: filterCounts.india_hq},
+    {id: "bharti", label: "Bharti", count: filterCounts.bharti},
+    {id: "maitri", label: "Maitri", count: filterCounts.maitri},
+    {id: "in_transit", label: "In transit", count: filterCounts.in_transit},
+  ];
+
+  // Filter roster by location chip AND search string
   const filteredRoster = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return totalPersonnel;
-    return totalPersonnel.filter((p) => {
-      const pName = p.full_name || p.name || "";
-      const pRole = p.role || "";
-      const pStation = p.current_station_name || resolveStation(p.current_station_id) || "";
-      const pCode = p.personnel_code || p.id || "";
-      return (
-        pName.toLowerCase().includes(q) ||
-        pRole.toLowerCase().includes(q) ||
-        pStation.toLowerCase().includes(q) ||
-        pCode.toLowerCase().includes(q)
-      );
-    });
-  }, [search, totalPersonnel, liveStations]);
 
-  // Modal opener: Form data does NOT autofill; starts completely unselected
+    return unifiedRoster.filter((p) => {
+      // 1. Location filter chip check
+      if (locationFilter === "in_transit") {
+        if (!p.isInTransit) return false;
+      } else if (locationFilter === "india_hq") {
+        if (p.isInTransit) return false;
+        const s = (p.current_station || "").toLowerCase();
+        if (!s.includes("india") && !s.includes("hq")) return false;
+      } else if (locationFilter === "bharti") {
+        if (p.isInTransit) return false;
+        const s = (p.current_station || "").toLowerCase();
+        if (!s.includes("bharti")) return false;
+      } else if (locationFilter === "maitri") {
+        if (p.isInTransit) return false;
+        const s = (p.current_station || "").toLowerCase();
+        if (!s.includes("maitri")) return false;
+      }
+
+      // 2. Search filter (name, role, station, route, code)
+      if (q) {
+        const nameMatch = (p.name || "").toLowerCase().includes(q);
+        const roleMatch = (p.role || "").toLowerCase().includes(q);
+        const stationMatch = (p.current_station || "").toLowerCase().includes(q);
+        const codeMatch = (p.personnel_code || "").toLowerCase().includes(q);
+        const originMatch = (p.activeMovement?.origin_station_name || "").toLowerCase().includes(q);
+        const destMatch = (p.activeMovement?.destination_station_name || "").toLowerCase().includes(q);
+
+        if (!nameMatch && !roleMatch && !stationMatch && !codeMatch && !originMatch && !destMatch) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [unifiedRoster, locationFilter, search]);
+
+  // Handler when clicking a row in Current movements table
+  const handleSelectFromMovement = (m) => {
+    const movId = m.personnel_id || m.id;
+    const movName = (m.name || m.personnel_name || m.full_name || "").trim().toLowerCase();
+
+    const found = unifiedRoster.find((item) => {
+      const itemId = item.personnel_id || item.id;
+      if (movId && itemId && movId === itemId) return true;
+      const itemName = (item.name || item.full_name || "").trim().toLowerCase();
+      if (movName && itemName && movName === itemName) return true;
+      return false;
+    });
+
+    if (found) {
+      setSelectedPerson(found);
+    } else {
+      setSelectedPerson({
+        personnel_id: movId,
+        name: m.name || m.personnel_name || m.full_name || "Personnel",
+        role: m.role || "Station Staff",
+        current_station: m.current_station || "",
+        isInTransit: true,
+        activeMovement: m,
+        status: m.status || m.movement_status || "in_transit",
+      });
+    }
+  };
+
+  // Handler when clicking a row in Personnel Directory
+  const handleSelectPersonnel = (p) => {
+    setSelectedPerson(p);
+  };
+
   function openCreateModal() {
     setForm(emptyForm);
     setFormError(null);
@@ -423,8 +609,15 @@ const Personnel = () => {
         </div>
       )}
 
-      {/* Current Movements Table */}
-      <Panel title={`Current movements (${movingPersonnel.length})`}>
+      {/* 1. Current Movements Section */}
+      <Panel
+        title={`Current movements (${movingPersonnel.length})`}
+        right={
+          <span className="text-xs hidden sm:inline" style={{color: colors.textFaint}}>
+            Click row to view personnel profile
+          </span>
+        }
+      >
         <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
           {(loading && !initialized) || (loading && movingPersonnel.length === 0) ? (
             <TableSkeleton rows={4} cols={7} />
@@ -453,7 +646,7 @@ const Personnel = () => {
                   </tr>
                 ) : (
                   movingPersonnel.map((p, i) => {
-                    const person = totalPersonnel.find((item) => item.id === p.personnel_id);
+                    const person = totalPersonnel.find((item) => item.id === p.personnel_id || item.personnel_id === p.personnel_id);
                     const displayName = p.full_name || p.personnel_name || (person ? (person.full_name || person.name) : p.name) || "—";
                     const displayRole = p.role || (person ? person.role : "—");
                     const displayStation = p.current_station_name || (person ? (person.current_station_name || resolveStation(person.current_station_id)) : resolveStation(p.origin_station_id));
@@ -464,8 +657,23 @@ const Personnel = () => {
                     const status = p.movement_status || p.status || "in_transit";
 
                     return (
-                      <tr key={p.id || `${displayName}-${i}`} style={{ borderTop: `1px solid ${colors.borderSoft}` }}>
-                        <td className="py-3.5 px-4 pl-2 whitespace-nowrap" style={{ color: colors.text, fontWeight: 500 }}>
+                      <tr
+                        key={p.id || p.personnel_id || `${displayName}-${i}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleSelectFromMovement(p)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            handleSelectFromMovement(p);
+                          }
+                        }}
+                        className="cursor-pointer transition-colors hover:bg-white/[0.04] group outline-none"
+                        style={{borderTop: `1px solid ${colors.borderSoft}`}}
+                      >
+                        <td
+                          className="py-3.5 px-4 pl-2 whitespace-nowrap font-medium group-hover:text-[var(--color-ice)] transition-colors"
+                          style={{color: colors.text}}>
                           {displayName}
                         </td>
                         <td className="py-3.5 px-4 whitespace-nowrap" style={{ color: colors.textMuted }}>
@@ -474,7 +682,8 @@ const Personnel = () => {
                         <td className="py-3.5 px-4 whitespace-nowrap" style={{ color: colors.textMuted }}>
                           {displayStation}
                         </td>
-                        <td className="py-3.5 px-4 whitespace-nowrap" style={{ color: colors.textMuted, ...mono, fontSize: 13 }}>
+                        <td className="py-3.5 px-4 whitespace-nowrap"
+                            style={{color: colors.amber, ...mono, fontSize: 13}}>
                           {fromStation} → {toStation}
                         </td>
                         <td className="py-3.5 px-4 whitespace-nowrap" style={{ color: colors.textMuted, ...mono, fontSize: 12 }}>
@@ -496,9 +705,9 @@ const Personnel = () => {
         </div>
       </Panel>
 
-      {/* Total Personnel Roster */}
+      {/* 2. Personnel Directory Section */}
       <Panel
-        title={`Total Personnel - ${totalPersonnel.length}`}
+        title={`Personnel Directory (${filteredRoster.length})`}
         action={
           <div
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded w-full sm:w-auto"
@@ -512,57 +721,179 @@ const Personnel = () => {
               className="text-xs outline-none bg-transparent w-full sm:w-48"
               style={{ color: colors.text }}
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="p-0.5 rounded cursor-pointer hover:opacity-75"
+                style={{color: colors.textMuted}}
+                aria-label="Clear search"
+              >
+                <X size={12}/>
+              </button>
+            )}
           </div>
         }
       >
-        <div className="flex flex-col" style={{ maxHeight: 320, overflowY: "auto" }}>
-          {(loading && !initialized) || (loading && totalPersonnel.length === 0) ? (
-            <ListSkeleton rows={5} />
-          ) : (
-            <>
-              {filteredRoster.map((p) => {
-                const personName = p.full_name || p.name;
-                const isBusy = busyPersonIds.has(p.id) || busyPersonNames.has(personName);
-                const statusInfo = getPersonnelStatus(p, isBusy);
-                const stationName = p.current_station_name || resolveStation(p.current_station_id) || "Station Unassigned";
-                const code = p.personnel_code || (p.id ? p.id.slice(0, 8) : "STAFF");
+        <div className="flex flex-col gap-3.5">
+          {/* Location Filter Chips */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+            {filterChips.map((chip) => {
+              const active = locationFilter === chip.id;
+              return (
+                <button
+                  key={chip.id}
+                  type="button"
+                  onClick={() => setLocationFilter(chip.id)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer whitespace-nowrap"
+                  style={{
+                    background: active ? colors.iceBg : colors.panelAlt,
+                    color: active ? colors.ice : colors.textMuted,
+                    border: `1px solid ${active ? colors.iceDim : colors.borderSoft}`,
+                  }}
+                >
+                  <span>{chip.label}</span>
+                  <span
+                    className="px-1.5 py-0.2 rounded-full text-[10px] font-semibold"
+                    style={{
+                      background: active ? colors.ice : colors.border,
+                      color: active ? colors.iceButtonText : colors.textMuted,
+                    }}
+                  >
+                    {chip.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Directory Personnel List */}
+          <div className="flex flex-col gap-1.5 max-h-[520px] overflow-y-auto custom-scrollbar pt-1 pr-1">
+            {(loading && !initialized) || (loading && unifiedRoster.length === 0) ? (
+              <ListSkeleton rows={5}/>
+            ) : filteredRoster.length === 0 ? (
+              <div
+                className="text-sm py-10 text-center rounded-lg flex flex-col items-center gap-2"
+                style={{background: colors.panelAlt, border: `1px dashed ${colors.border}`, color: colors.textMuted}}
+              >
+                <span>
+                  {search
+                    ? `No personnel matching "${search}" in this location.`
+                    : "No personnel records found for this filter."}
+                </span>
+                {(search || locationFilter !== "all") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch("");
+                      setLocationFilter("all");
+                    }}
+                    className="text-xs px-3 py-1 rounded font-medium cursor-pointer transition-opacity hover:opacity-85 mt-1"
+                    style={{background: colors.iceBg, color: colors.ice, border: `1px solid ${colors.iceDim}`}}
+                  >
+                    Reset filters
+                  </button>
+                )}
+              </div>
+            ) : (
+              filteredRoster.map((person) => {
+                const isSelected = selectedPerson && (
+                  (selectedPerson.personnel_id && selectedPerson.personnel_id === person.personnel_id) ||
+                  (selectedPerson.name && selectedPerson.name === person.name)
+                );
+                const statusBadge = getPersonnelStatusBadge(person);
 
                 return (
                   <div
-                    key={p.id || personName}
-                    className="flex items-center justify-between py-2.5 gap-2"
-                    style={{ borderBottom: `1px solid ${colors.borderSoft}` }}
+                    key={person.personnel_id || person.id || person.name}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleSelectPersonnel(person)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        handleSelectPersonnel(person);
+                      }
+                    }}
+                    className="group flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg gap-2.5 sm:gap-4 cursor-pointer transition-all duration-150 outline-none hover:bg-white/[0.04]"
+                    style={{
+                      background: isSelected ? colors.panelAlt : colors.panel,
+                      border: `1px solid ${isSelected ? colors.iceDim : colors.borderSoft}`,
+                    }}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium truncate" style={{ color: colors.text }}>
-                          {personName}{" "}
-                          <span className="text-xs font-normal opacity-70" style={{ ...mono }}>
-                            ({code})
+                      {/* Initials Avatar */}
+                      <div
+                        className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 transition-transform group-hover:scale-105"
+                        style={{
+                          background: person.isInTransit ? colors.amberBg : colors.iceBg,
+                          color: person.isInTransit ? colors.amber : colors.ice,
+                          border: `1px solid ${person.isInTransit ? colors.amberDim : colors.iceDim}`,
+                        }}
+                      >
+                        {getInitials(person.name)}
+                      </div>
+
+                      {/* Name, Role, Current Station or Movement Route */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className="text-sm font-semibold truncate group-hover:text-[var(--color-ice)] transition-colors"
+                            style={{color: colors.text}}
+                          >
+                            {person.name}
                           </span>
+                          {person.personnel_code && (
+                            <span className="text-[11px] opacity-60" style={{...mono}}>
+                              ({person.personnel_code})
+                            </span>
+                          )}
                         </div>
-                        <div className="text-xs truncate" style={{ color: colors.textMuted }}>
-                          {p.role || "Station Staff"} · {stationName}
+
+                        <div className="flex items-center gap-2 text-xs truncate mt-0.5"
+                             style={{color: colors.textMuted}}>
+                          <span className="truncate">{person.role || "Station Staff"}</span>
+                          <span style={{color: colors.textFaint}}>•</span>
+                          {person.isInTransit ? (
+                            <span
+                              className="inline-flex items-center gap-1 font-medium truncate"
+                              style={{color: colors.amber, ...mono, fontSize: 11}}
+                            >
+                              <Navigation size={11} className="flex-shrink-0"/>
+                              <span className="truncate">{person.activeMovement?.origin_station_name || "Origin"}</span>
+                              <ArrowRight size={10} className="flex-shrink-0"/>
+                              <span
+                                className="truncate">{person.activeMovement?.destination_station_name || "Destination"}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 truncate">
+                              <MapPin size={11} className="flex-shrink-0 opacity-70"/>
+                              <span className="truncate">{person.current_station || "Unassigned"}</span>
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-                      <Pill tone={statusInfo.tone}>{statusInfo.label}</Pill>
+
+                    {/* Status Badge & Chevron Affordance */}
+                    <div
+                      className="flex items-center justify-between sm:justify-end gap-2.5 flex-shrink-0 pl-12 sm:pl-0">
+                      <Pill tone={statusBadge.tone}>{statusBadge.label}</Pill>
+                      <ChevronRight
+                        size={15}
+                        className="opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all hidden sm:block"
+                        style={{color: colors.textMuted}}
+                      />
                     </div>
                   </div>
                 );
-              })}
-              {filteredRoster.length === 0 && (
-                <div className="text-sm py-6 text-center" style={{ color: colors.textFaint }}>
-                  {search ? `No one matches "${search}".` : "No personnel records found."}
-                </div>
-              )}
-            </>
-          )}
+              })
+            )}
+          </div>
         </div>
       </Panel>
 
-      {/* Movement History */}
+      {/* 3. Movement History Section */}
       <Panel title="Movement history" action={<History size={15} color={colors.textFaint} />}>
         <div className="flex flex-col gap-3.5">
           {(loading && !initialized) || (loading && movementHistory.length === 0) ? (
@@ -573,7 +904,7 @@ const Personnel = () => {
             </div>
           ) : (
             movementHistory.map((h, i) => {
-              const person = totalPersonnel.find((item) => item.id === h.personnel_id);
+              const person = totalPersonnel.find((item) => item.id === h.personnel_id || item.personnel_id === h.personnel_id);
               const displayName = h.full_name || h.personnel_name || (person ? (person.full_name || person.name) : h.name) || "—";
               const fromStation = h.origin_station_name || resolveStation(h.origin_station_id) || "—";
               const toStation = h.destination_station_name || resolveStation(h.destination_station_id) || "—";
@@ -584,7 +915,26 @@ const Personnel = () => {
               return (
                 <div
                   key={h.id || `${displayName}-${i}`}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-3 text-sm pb-2.5 sm:pb-0"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    const match = unifiedRoster.find(
+                      (u) => (h.personnel_id && (u.personnel_id === h.personnel_id || u.id === h.personnel_id)) ||
+                        (displayName && u.name.toLowerCase() === displayName.toLowerCase())
+                    );
+                    if (match) setSelectedPerson(match);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      const match = unifiedRoster.find(
+                        (u) => (h.personnel_id && (u.personnel_id === h.personnel_id || u.id === h.personnel_id)) ||
+                          (displayName && u.name.toLowerCase() === displayName.toLowerCase())
+                      );
+                      if (match) setSelectedPerson(match);
+                    }
+                  }}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-3 text-sm pb-2.5 sm:pb-0 cursor-pointer hover:opacity-85 transition-opacity"
                   style={{ borderBottom: `1px solid ${colors.borderSoft}` }}
                 >
                   <div>
@@ -607,7 +957,14 @@ const Personnel = () => {
         </div>
       </Panel>
 
-      {/* Assign Personnel Modal */}
+      {/* 4. Personnel Detail Drawer (Right side over page on desktop, bottom sheet on mobile) */}
+      <PersonnelDrawer
+        person={selectedPerson}
+        onClose={() => setSelectedPerson(null)}
+        movementHistory={movementHistory}
+      />
+
+      {/* 5. Assign Personnel Modal */}
       {modalOpen && (
         <Modal title="Assign personnel to expedition movement" onClose={() => setModalOpen(false)} width={520}>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">

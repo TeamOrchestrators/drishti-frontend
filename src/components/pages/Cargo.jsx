@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import {useNavigate} from "react-router-dom";
 import {
   Plus,
   Package,
@@ -12,6 +13,9 @@ import {
   RefreshCw,
   Tag,
   Loader2,
+  QrCode,
+  Scan,
+  MapPin,
 } from "lucide-react";
 import { colors, mono } from "../../theme";
 import Panel from "../ui/Panel";
@@ -22,6 +26,13 @@ import Modal from "../ui/Modal.jsx";
 import { TableSkeleton, CardSkeleton } from "../ui/Skeleton.jsx";
 import { useCargoStore } from "../../store/useCargoStore.js";
 import { useExpeditionStore } from "../../store/useExpeditionStore.js";
+import CargoQrModal from "../cargo/CargoQrModal.jsx";
+import BatchMap from "../cargo/BatchMap.jsx";
+import {
+  matchCargoToBatch,
+  resolveBatchStatus,
+  batchStatusTone,
+} from "../../utils/cargoUtils.js";
 
 const priorityOptions = [
   { value: "standard", label: "Standard" },
@@ -48,17 +59,6 @@ const batchStatusOptions = [
   { value: "delayed", label: "Delayed" },
   { value: "cancelled", label: "Cancelled" },
 ];
-
-function batchStatusTone(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "draft") return "muted";
-  if (s === "planned" || s === "packed") return "amber";
-  if (s === "dispatched") return "ice";
-  if (s === "received") return "aurora";
-  if (s === "delayed") return "flare";
-  if (s === "cancelled") return "muted";
-  return "ice";
-}
 
 function cargoStatusTone(status) {
   const s = String(status || "").toLowerCase();
@@ -130,7 +130,6 @@ function toDateInputValue(d) {
   }
 }
 
-
 const emptyCargoForm = {
   cargo_code: "",
   origin_station_id: "",
@@ -154,36 +153,52 @@ const Cargo = () => {
   const {
     cargo,
     batches,
+    batchTracking = {},
     loading,
     submitting,
     assigningCargoId,
     error,
     initialized,
     fetchCargo,
+    fetchBatchTracking,
     createCargo,
     createBatch,
     assignLogisticsBatch,
     clearError,
   } = useCargoStore();
 
-  const {
-    stations,
-    expeditions,
-  } = useExpeditionStore();
+  const {stations, expeditions} = useExpeditionStore();
 
+  const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
   const [batchModalOpen, setBatchModalOpen] = useState(false);
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [qrModalCargo, setQrModalCargo] = useState(null);
+  const [isNewlyCreatedQr, setIsNewlyCreatedQr] = useState(false);
   const [form, setForm] = useState(emptyCargoForm);
   const [batchForm, setBatchForm] = useState(emptyBatchForm);
   const [formError, setFormError] = useState(null);
   const [batchFormError, setBatchFormError] = useState(null);
   const [search, setSearch] = useState("");
+  const [expandedBatchMapId, setExpandedBatchMapId] = useState(null);
+
+  const openCargoQr = (cargoItem) => {
+    setQrModalCargo(cargoItem);
+    setIsNewlyCreatedQr(false);
+    setQrModalOpen(true);
+  };
 
   useEffect(() => {
     if (!initialized) {
       fetchCargo();
+    } else if (batches.length > 0 && fetchBatchTracking) {
+      batches.forEach((b) => {
+        if (b.id && !batchTracking[b.id]) {
+          fetchBatchTracking(b.id);
+        }
+      });
     }
-  }, [initialized, fetchCargo]);
+  }, [initialized, batches, batchTracking, fetchCargo, fetchBatchTracking]);
 
   // Search filtering over cargo items
   const filteredCargo = useMemo(() => {
@@ -221,24 +236,45 @@ const Cargo = () => {
         if (value) {
           const currentExpeditions = useExpeditionStore.getState().expeditions;
           const currentStations = useExpeditionStore.getState().stations;
-          const exp = currentExpeditions.find((e) => e.id === value) || expeditions.find((e) => e.id === value);
+          const exp =
+            currentExpeditions.find((e) => e.id === value) ||
+            expeditions.find((e) => e.id === value);
           if (exp) {
-            const allStations = currentStations.length > 0 ? currentStations : stations;
+            const allStations =
+              currentStations.length > 0 ? currentStations : stations;
             const originStation = allStations.find(
               (s) =>
                 s.id === exp.origin_station_id ||
-                (exp.origin_station_name && s.name?.toLowerCase() === exp.origin_station_name.toLowerCase()) ||
-                (s.code && exp.origin_station_code && s.code.toLowerCase() === exp.origin_station_code.toLowerCase())
+                (exp.origin_station_name &&
+                  s.name?.toLowerCase() ===
+                  exp.origin_station_name.toLowerCase()) ||
+                (s.code &&
+                  exp.origin_station_code &&
+                  s.code.toLowerCase() ===
+                  exp.origin_station_code.toLowerCase()),
             );
             const destStation = allStations.find(
               (s) =>
                 s.id === exp.destination_station_id ||
-                (exp.destination_station_name && s.name?.toLowerCase() === exp.destination_station_name.toLowerCase()) ||
-                (s.code && exp.destination_station_code && s.code.toLowerCase() === exp.destination_station_code.toLowerCase())
+                (exp.destination_station_name &&
+                  s.name?.toLowerCase() ===
+                  exp.destination_station_name.toLowerCase()) ||
+                (s.code &&
+                  exp.destination_station_code &&
+                  s.code.toLowerCase() ===
+                  exp.destination_station_code.toLowerCase()),
             );
 
-            updated.origin_station_id = originStation?.id || exp.origin_station_id || exp.originStationId || "";
-            updated.destination_station_id = destStation?.id || exp.destination_station_id || exp.destinationStationId || "";
+            updated.origin_station_id =
+              originStation?.id ||
+              exp.origin_station_id ||
+              exp.originStationId ||
+              "";
+            updated.destination_station_id =
+              destStation?.id ||
+              exp.destination_station_id ||
+              exp.destinationStationId ||
+              "";
           }
         } else {
           // Expedition deselected: clear and unlock origin & destination
@@ -273,10 +309,20 @@ const Cargo = () => {
           }
         }
       }
-      if (key === "planned_dispatch_at" && value && updated.estimated_arrival_at && updated.estimated_arrival_at < value) {
+      if (
+        key === "planned_dispatch_at" &&
+        value &&
+        updated.estimated_arrival_at &&
+        updated.estimated_arrival_at < value
+      ) {
         updated.estimated_arrival_at = "";
       }
-      if (key === "estimated_arrival_at" && value && updated.planned_dispatch_at && value < updated.planned_dispatch_at) {
+      if (
+        key === "estimated_arrival_at" &&
+        value &&
+        updated.planned_dispatch_at &&
+        value < updated.planned_dispatch_at
+      ) {
         updated.estimated_arrival_at = "";
       }
       return updated;
@@ -340,7 +386,13 @@ const Cargo = () => {
     }
 
     const trimmedCode = form.cargo_code.trim();
-    if (cargo.some((c) => c.cargo_code && c.cargo_code.toLowerCase() === trimmedCode.toLowerCase())) {
+    if (
+      cargo.some(
+        (c) =>
+          c.cargo_code &&
+          c.cargo_code.toLowerCase() === trimmedCode.toLowerCase(),
+      )
+    ) {
       setFormError(`A cargo item with code "${trimmedCode}" already exists.`);
       return;
     }
@@ -356,9 +408,42 @@ const Cargo = () => {
     };
 
     try {
-      await createCargo(payload);
+      const res = await createCargo(payload);
       setModalOpen(false);
       setForm(emptyCargoForm);
+
+      // Immediately show polished Cargo QR generated modal
+      const currentStations =
+        useExpeditionStore.getState().stations.length > 0 ?
+          useExpeditionStore.getState().stations
+          : stations;
+      const currentExpeditions =
+        useExpeditionStore.getState().expeditions.length > 0 ?
+          useExpeditionStore.getState().expeditions
+          : expeditions;
+      const originStation = currentStations.find(
+        (s) => s.id === payload.origin_station_id,
+      );
+      const destStation = currentStations.find(
+        (s) => s.id === payload.destination_station_id,
+      );
+      const linkedExp = currentExpeditions.find(
+        (e) => e.id === payload.expedition_id,
+      );
+
+      setQrModalCargo({
+        id: res?.cargo_id || res?.qr_token || payload.cargo_code,
+        qr_token: res?.qr_token || res?.cargo_id || payload.cargo_code,
+        cargo_code: payload.cargo_code,
+        origin_station_name: originStation?.name || "Station Origin",
+        destination_station_name: destStation?.name || "Station Destination",
+        priority: payload.priority || "standard",
+        status: payload.status || "draft",
+        expedition_name: linkedExp?.expedition_name || linkedExp?.name,
+        notes: payload.notes,
+      });
+      setIsNewlyCreatedQr(true);
+      setQrModalOpen(true);
     } catch (err) {
       setFormError(err.message || "Failed to create cargo request.");
     }
@@ -375,8 +460,16 @@ const Cargo = () => {
     }
 
     // Prevent duplicate batch code immediately
-    if (batches.some((b) => b.batch_code && b.batch_code.toLowerCase() === trimmedCode.toLowerCase())) {
-      setBatchFormError(`A batch with code "${trimmedCode}" already exists. Please choose a unique batch code.`);
+    if (
+      batches.some(
+        (b) =>
+          b.batch_code &&
+          b.batch_code.toLowerCase() === trimmedCode.toLowerCase(),
+      )
+    ) {
+      setBatchFormError(
+        `A batch with code "${trimmedCode}" already exists. Please choose a unique batch code.`,
+      );
       return;
     }
 
@@ -396,7 +489,9 @@ const Cargo = () => {
     const dispatchTime = new Date(batchForm.planned_dispatch_at).getTime();
     const arrivalTime = new Date(batchForm.estimated_arrival_at).getTime();
     if (arrivalTime < dispatchTime) {
-      setBatchFormError("Estimated arrival date cannot be earlier than planned dispatch date.");
+      setBatchFormError(
+        "Estimated arrival date cannot be earlier than planned dispatch date.",
+      );
       return;
     }
 
@@ -404,8 +499,12 @@ const Cargo = () => {
       batch_code: trimmedCode,
       expedition_id: batchForm.expedition_id,
       status: batchForm.status || "planned",
-      planned_dispatch_at: new Date(batchForm.planned_dispatch_at).toISOString(),
-      estimated_arrival_at: new Date(batchForm.estimated_arrival_at).toISOString(),
+      planned_dispatch_at: new Date(
+        batchForm.planned_dispatch_at,
+      ).toISOString(),
+      estimated_arrival_at: new Date(
+        batchForm.estimated_arrival_at,
+      ).toISOString(),
       notes: batchForm.notes ? batchForm.notes.trim() : "",
     };
 
@@ -447,11 +546,20 @@ const Cargo = () => {
       ensureOption(form.origin_station_id, selectedExp?.origin_station_name);
     }
     if (form.destination_station_id) {
-      ensureOption(form.destination_station_id, selectedExp?.destination_station_name);
+      ensureOption(
+        form.destination_station_id,
+        selectedExp?.destination_station_name,
+      );
     }
 
     return opts;
-  }, [stations, expeditions, form.expedition_id, form.origin_station_id, form.destination_station_id]);
+  }, [
+    stations,
+    expeditions,
+    form.expedition_id,
+    form.origin_station_id,
+    form.destination_station_id,
+  ]);
 
   // Expedition dropdown options
   const expeditionOptions = expeditions.map((e) => {
@@ -465,7 +573,7 @@ const Cargo = () => {
 
   // Preview selected expedition for batch creation
   const selectedExpeditionForBatch = expeditions.find(
-    (e) => e.id === batchForm.expedition_id
+    (e) => e.id === batchForm.expedition_id,
   );
 
   return (
@@ -473,11 +581,39 @@ const Cargo = () => {
       {/* Top Header */}
       <SectionHeading
         right={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            <button
+              onClick={() => fetchCargo()}
+              disabled={loading}
+              title="Refresh cargo & logistics"
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded cursor-pointer transition-opacity hover:opacity-80 disabled:opacity-50"
+              style={{
+                color: colors.textMuted,
+                border: `1px solid ${colors.border}`,
+              }}
+            >
+              <RefreshCw size={13} className={loading ? "animate-spin" : ""}/>
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+            <button
+              onClick={() => navigate("/cargo/scan")}
+              className="md:hidden flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded cursor-pointer transition-opacity hover:opacity-80"
+              style={{
+                background: colors.auroraBg,
+                color: colors.aurora,
+                border: `1px solid ${colors.auroraDim}`,
+              }}
+              title="Scan cargo QR code"
+            >
+              <Scan size={14}/> Scan cargo QR
+            </button>
             <button
               onClick={openCreateBatch}
               className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded cursor-pointer transition-opacity hover:opacity-80"
-              style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}
+              style={{
+                color: colors.textMuted,
+                border: `1px solid ${colors.border}`,
+              }}
             >
               <Layers size={14} /> New Logistics Batch
             </button>
@@ -525,15 +661,418 @@ const Cargo = () => {
         </div>
       )}
 
+      {/* Logistics Batches Section */}
+      <Panel
+        title={`Logistics Batches (${batches.length})`}
+        action={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openCreateBatch}
+              className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded cursor-pointer transition-opacity hover:opacity-80"
+              style={{
+                background: colors.auroraBg,
+                color: colors.aurora,
+              }}
+            >
+              <Plus size={13}/> New Logistics Batch
+            </button>
+          </div>
+        }
+      >
+        {loading && !initialized ?
+          <CardSkeleton count={2}/>
+          : batches.length === 0 ?
+            <div
+              className="py-10 text-center text-xs rounded-lg"
+              style={{
+                color: colors.textMuted,
+                border: `1px dashed ${colors.borderSoft}`,
+              }}
+            >
+              No logistics batches created yet. Click "New Logistics Batch" above
+              to plan a batch for an expedition.
+            </div>
+            : <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6 items-start">
+              {batches.map((b) => {
+                const assignedCargoList = cargo.filter((c) =>
+                  matchCargoToBatch(c, b),
+                );
+                const cargoCount = assignedCargoList.length || b.cargo_count || 0;
+                const batchKey = b.id || b.batch_code;
+                const isMapExpanded = expandedBatchMapId === batchKey;
+
+                const tracking =
+                  (b.id && batchTracking[b.id]) ||
+                  (b.batch_code && batchTracking[b.batch_code]) ||
+                  null;
+                const checkpoints =
+                  Array.isArray(tracking?.checkpoints) ?
+                    tracking.checkpoints
+                    : [];
+                const hasCheckpoints = checkpoints.length > 0;
+                const hasPropagated = checkpoints.some(
+                  (cp) => Number(cp.affected_cargo_count) > 1,
+                );
+
+                const effectiveBatchStatus = resolveBatchStatus(
+                  b,
+                  cargo,
+                  tracking,
+                );
+
+                // Calculate batch propagation statistics
+                const receivedCount = assignedCargoList.filter(
+                  (c) => c.status === "received",
+                ).length;
+                const inTransitCount = assignedCargoList.filter(
+                  (c) => c.status === "in_transit",
+                ).length;
+                const dispatchedCount = assignedCargoList.filter(
+                  (c) => c.status === "dispatched",
+                ).length;
+                const packedCount = assignedCargoList.filter(
+                  (c) => c.status === "packed",
+                ).length;
+                const delayedCount = assignedCargoList.filter(
+                  (c) => c.status === "delayed",
+                ).length;
+
+                return (
+                  <div
+                    key={batchKey}
+                    className="rounded-lg p-4 sm:p-5 flex flex-col gap-3.5 transition-colors shadow-xs h-auto self-start"
+                    style={{
+                      background: colors.bgRaised,
+                      border: `1px solid ${colors.border}`,
+                    }}
+                  >
+                    {/* Batch Header */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-col gap-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                        <span
+                          className="text-sm font-semibold tracking-wide"
+                          style={{...mono, color: colors.text}}
+                        >
+                          {b.batch_code}
+                        </span>
+                          <Pill tone={batchStatusTone(effectiveBatchStatus)}>
+                            {formatStatus(effectiveBatchStatus)}
+                          </Pill>
+                          {hasPropagated && (
+                            <span
+                              className="hidden sm:inline-flex text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded"
+                              style={{
+                                background: colors.iceBg,
+                                color: colors.ice,
+                                border: `1px solid ${colors.iceDim}`,
+                              }}
+                            >
+                            Propagated
+                          </span>
+                          )}
+                        </div>
+                        <div
+                          className="flex items-center gap-1.5 text-xs font-medium truncate"
+                          style={{color: colors.text}}
+                        >
+                        <span>
+                          {b.origin_station_name ||
+                            assignedCargoList[0]?.origin_station_name ||
+                            "—"}
+                        </span>
+                          <ArrowRight
+                            size={12}
+                            style={{color: colors.textFaint}}
+                          />
+                          <span>
+                          {b.destination_station_name ||
+                            assignedCargoList[0]?.destination_station_name ||
+                            "—"}
+                        </span>
+                        </div>
+                      </div>
+
+                      {/* Actions: Cargo count badge & Batch Map button */}
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {hasCheckpoints ?
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedBatchMapId(
+                                isMapExpanded ? null : batchKey,
+                              )
+                            }
+                            className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded cursor-pointer transition-opacity hover:opacity-85"
+                            style={{
+                              background:
+                                isMapExpanded ? colors.ice : colors.panelAlt,
+                              color:
+                                isMapExpanded ? colors.iceButtonText : colors.ice,
+                              border: `1px solid ${isMapExpanded ? colors.ice : colors.borderSoft}`,
+                            }}
+                            title={
+                              isMapExpanded ? "Collapse route map" : (
+                                "View route map"
+                              )
+                            }
+                          >
+                            <MapPin size={12}/>
+                            <span>{isMapExpanded ? "Hide map" : "Show map"}</span>
+                          </button>
+                          : <div
+                            className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded select-none cursor-default opacity-60"
+                            style={{
+                              background: colors.panelAlt,
+                              color: colors.textMuted,
+                              border: `1px solid ${colors.borderSoft}`,
+                            }}
+                            title="No GPS checkpoints recorded yet"
+                          >
+                            <MapPin
+                              size={12}
+                              style={{color: colors.textFaint}}
+                            />
+                            <span>No GPS</span>
+                          </div>
+                        }
+
+                        <div
+                          className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded"
+                          style={{
+                            background: colors.panelAlt,
+                            color: colors.ice,
+                            border: `1px solid ${colors.borderSoft}`,
+                          }}
+                        >
+                          <Package size={13}/>
+                          <span style={{...mono}}>{cargoCount}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Batch Propagation Progress Bar & Summary */}
+                    {assignedCargoList.length > 0 && (
+                      <div
+                        className="p-2.5 rounded-lg flex flex-col gap-1.5 text-xs"
+                        style={{
+                          background: colors.panelAlt,
+                          border: `1px solid ${colors.borderSoft}`,
+                        }}
+                      >
+                        <div className="flex items-center justify-between text-[11px] font-medium flex-wrap gap-1">
+                        <span style={{color: colors.textMuted}}>
+                          Batch Propagation
+                        </span>
+                          <span style={{color: colors.text}}>
+                          {receivedCount === assignedCargoList.length ?
+                            "All items received · Complete"
+                            : [
+                              dispatchedCount > 0 ?
+                                `${dispatchedCount} dispatched`
+                                : null,
+                              inTransitCount > 0 ?
+                                `${inTransitCount} in transit`
+                                : null,
+                              packedCount > 0 ? `${packedCount} packed` : null,
+                              receivedCount > 0 ?
+                                `${receivedCount} received`
+                                : null,
+                              delayedCount > 0 ?
+                                `${delayedCount} delayed`
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ") ||
+                            `${assignedCargoList.length} items`
+                          }
+                        </span>
+                        </div>
+
+                        {/* Multi-segment propagation bar */}
+                        <div className="w-full h-1.5 rounded-full overflow-hidden flex bg-slate-800/40">
+                          {receivedCount > 0 && (
+                            <div
+                              style={{
+                                width: `${(receivedCount / assignedCargoList.length) * 100}%`,
+                                background: "#059669",
+                              }}
+                              title={`${receivedCount} received`}
+                            />
+                          )}
+                          {inTransitCount > 0 && (
+                            <div
+                              style={{
+                                width: `${(inTransitCount / assignedCargoList.length) * 100}%`,
+                                background: "#0284C7",
+                              }}
+                              title={`${inTransitCount} in transit`}
+                            />
+                          )}
+                          {dispatchedCount > 0 && (
+                            <div
+                              style={{
+                                width: `${(dispatchedCount / assignedCargoList.length) * 100}%`,
+                                background: "#38BDF8",
+                              }}
+                              title={`${dispatchedCount} dispatched`}
+                            />
+                          )}
+                          {packedCount > 0 && (
+                            <div
+                              style={{
+                                width: `${(packedCount / assignedCargoList.length) * 100}%`,
+                                background: "#D97706",
+                              }}
+                              title={`${packedCount} packed`}
+                            />
+                          )}
+                          {delayedCount > 0 && (
+                            <div
+                              style={{
+                                width: `${(delayedCount / assignedCargoList.length) * 100}%`,
+                                background: "#DC2626",
+                              }}
+                              title={`${delayedCount} delayed`}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* For batches with no GPS data, show compact inline empty state */}
+                    {!hasCheckpoints && (
+                      <div
+                        className="px-3 py-2 rounded-lg flex items-center gap-2 text-xs"
+                        style={{
+                          background: colors.panelAlt,
+                          color: colors.textMuted,
+                          border: `1px dashed ${colors.borderSoft}`,
+                        }}
+                      >
+                        <MapPin
+                          size={13}
+                          style={{color: colors.textFaint}}
+                          className="flex-shrink-0"
+                        />
+                        <span>No GPS checkpoints recorded yet</span>
+                      </div>
+                    )}
+
+                    {/* Expandable Batch Map */}
+                    {hasCheckpoints && isMapExpanded && (
+                      <div className="pt-1 pb-1 animate-in fade-in duration-200">
+                        <BatchMap
+                          batch={b}
+                          checkpoints={checkpoints}
+                          cargoList={assignedCargoList}
+                          stations={stations}
+                          height="260px"
+                        />
+                      </div>
+                    )}
+
+                    {/* Batch Details Grid */}
+                    <div
+                      className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-3 text-xs"
+                      style={{borderTop: `1px solid ${colors.borderSoft}`}}
+                    >
+                      {/* Linked expedition */}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Compass
+                          size={13}
+                          className="flex-shrink-0"
+                          style={{color: colors.textFaint}}
+                        />
+                        <span
+                          className="truncate"
+                          style={{color: colors.textMuted}}
+                        >
+                        {b.expedition_name ?
+                          <span style={{color: colors.text, fontWeight: 500}}>
+                            {b.expedition_name}
+                          </span>
+                          : <span style={{color: colors.textFaint}}>
+                            Unlinked expedition
+                          </span>
+                        }
+                      </span>
+                      </div>
+
+                      {/* Planned Dispatch & Est. Arrival */}
+                      <div className="flex items-center gap-1.5 min-w-0 sm:justify-end">
+                        <Calendar
+                          size={13}
+                          className="flex-shrink-0"
+                          style={{color: colors.textFaint}}
+                        />
+                        <span style={{color: colors.textMuted, fontSize: 12}}>
+                        {formatDisplayDate(b.planned_dispatch_at)} →{" "}
+                          {formatDisplayDate(b.estimated_arrival_at)}
+                      </span>
+                      </div>
+                    </div>
+
+                    {/* Assigned items tag list if any */}
+                    {assignedCargoList.length > 0 && (
+                      <div
+                        className="flex flex-wrap gap-1.5 pt-2"
+                        style={{borderTop: `1px solid ${colors.borderSoft}`}}
+                      >
+                        {assignedCargoList.map((c) => (
+                          <span
+                            key={c.id}
+                            className="text-[11px] px-2 py-0.5 rounded flex items-center gap-1"
+                            style={{
+                              background: colors.panelAlt,
+                              color: colors.textMuted,
+                              border: `1px solid ${colors.borderSoft}`,
+                            }}
+                          >
+                          <Tag size={10} style={{color: colors.textFaint}}/>
+                          <span
+                            className="font-medium"
+                            style={{color: colors.text, ...mono}}
+                          >
+                            {c.cargo_code || c.id}
+                          </span>
+                            {c.status && (
+                              <span className="text-[10px] uppercase font-semibold text-slate-400">
+                              ({formatStatus(c.status)})
+                            </span>
+                            )}
+                            {c.notes && (
+                              <span className="max-w-[120px] truncate">
+                              · {c.notes}
+                            </span>
+                            )}
+                        </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+        }
+      </Panel>
+
       {/* Cargo Requests Table Panel */}
       <Panel
         title={`Cargo requests (${cargo.length})`}
         action={
           <div
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded w-full sm:w-auto"
-            style={{ background: colors.bgRaised, border: `1px solid ${colors.border}` }}
+            style={{
+              background: colors.bgRaised,
+              border: `1px solid ${colors.border}`,
+            }}
           >
-            <Search size={13} color={colors.textFaint} className="flex-shrink-0" />
+            <Search
+              size={13}
+              color={colors.textFaint}
+              className="flex-shrink-0"
+            />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -555,10 +1094,9 @@ const Cargo = () => {
         }
       >
         <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-          {loading && !initialized ? (
+          {loading && !initialized ?
             <TableSkeleton rows={5} cols={7} />
-          ) : (
-            <table className="w-full text-sm border-collapse min-w-[1050px]">
+            : <table className="w-full text-sm border-collapse min-w-[1050px]">
               <thead>
                 <tr style={{ color: colors.textFaint }}>
                   {[
@@ -569,12 +1107,13 @@ const Cargo = () => {
                     "Dispatch Batch",
                     "Status",
                     "Notes",
+                    "QR Label",
                   ].map((h, idx) => (
                     <th
                       key={h}
                       className={`text-left font-medium pb-3 text-xs whitespace-nowrap px-4 ${
                         idx === 0 ? "pl-2" : ""
-                      } ${idx === 6 ? "pr-2" : ""}`}
+                      } ${idx === 7 ? "pr-2 text-right" : ""}`}
                     >
                       {h}
                     </th>
@@ -582,27 +1121,29 @@ const Cargo = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredCargo.length === 0 ? (
+              {filteredCargo.length === 0 ?
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="py-10 text-center text-xs"
                       style={{ color: colors.textMuted }}
                     >
-                      {search
-                        ? `No cargo requests match "${search}".`
-                        : "No cargo requests recorded. Click \"New Cargo Request\" to create one."}
+                      {search ?
+                        `No cargo requests match "${search}".`
+                        : 'No cargo requests recorded. Click "New Cargo Request" to create one.'
+                      }
                     </td>
                   </tr>
-                ) : (
-                  filteredCargo.map((c) => {
+                : filteredCargo.map((c) => {
                     // Match batch by batch_code or logistics_batch_id
-                    const assignedBatch = batches.find(
-                      (b) =>
-                        (b.batch_code && b.batch_code === c.logistics_batch_code) ||
-                        (b.id && b.id === c.logistics_batch_id)
+                  const assignedBatch = batches.find((b) =>
+                      matchCargoToBatch(c, b),
                     );
-                    const currentBatchId = assignedBatch?.id || c.logistics_batch_id || "";
+                  const currentBatchId =
+                    assignedBatch?.id ||
+                    c.logistics_batch_id ||
+                    c.batch_id ||
+                    "";
                     const isAssigningThisRow = assigningCargoId === c.id;
 
                     return (
@@ -610,12 +1151,14 @@ const Cargo = () => {
                         key={c.id}
                         style={{ borderTop: `1px solid ${colors.borderSoft}` }}
                       >
-                        {/* Cargo Code */}
+                        {/* Cargo Code with compact QR button */}
                         <td
                           className="py-3.5 px-4 pl-2 whitespace-nowrap font-medium"
                           style={{ color: colors.text, ...mono, fontSize: 13 }}
                         >
-                          {c.cargo_code || c.id}
+                          <div className="flex items-center gap-2">
+                            <span>{c.cargo_code || c.id}</span>
+                          </div>
                         </td>
 
                         {/* Expedition */}
@@ -623,14 +1166,17 @@ const Cargo = () => {
                           className="py-3.5 px-4 whitespace-nowrap"
                           style={{ color: colors.textMuted, fontSize: 13 }}
                         >
-                          {c.expedition_name ? (
+                          {c.expedition_name ?
                             <span className="flex items-center gap-1.5">
-                              <Compass size={13} style={{ color: colors.textFaint }} />
-                              <span style={{ color: colors.text }}>{c.expedition_name}</span>
+                              <Compass
+                                size={13}
+                                style={{color: colors.textFaint}}
+                              />
+                              <span style={{color: colors.text}}>
+                                {c.expedition_name}
+                              </span>
                             </span>
-                          ) : (
-                            <span style={{ color: colors.textFaint }}>—</span>
-                          )}
+                            : <span style={{color: colors.textFaint}}>—</span>}
                         </td>
 
                         {/* Origin -> Destination Route */}
@@ -638,13 +1184,22 @@ const Cargo = () => {
                           className="py-3.5 px-4 whitespace-nowrap"
                           style={{ color: colors.textMuted, fontSize: 13 }}
                         >
-                          <span className="font-medium" style={{ color: colors.text }}>
+                          <span
+                            className="font-medium"
+                            style={{color: colors.text}}
+                          >
                             {c.origin_station_name || "—"}
                           </span>
-                          <span style={{ color: colors.textFaint }} className="mx-1.5">
+                          <span
+                            style={{color: colors.textFaint}}
+                            className="mx-1.5"
+                          >
                             →
                           </span>
-                          <span className="font-medium" style={{ color: colors.text }}>
+                          <span
+                            className="font-medium"
+                            style={{color: colors.text}}
+                          >
                             {c.destination_station_name || "—"}
                           </span>
                         </td>
@@ -662,11 +1217,16 @@ const Cargo = () => {
                             <select
                               value={currentBatchId}
                               disabled={isAssigningThisRow}
-                              onChange={(ev) => handleBatchAssignment(c.id, ev.target.value)}
+                              onChange={(ev) =>
+                                handleBatchAssignment(c.id, ev.target.value)
+                              }
                               className="text-xs rounded px-2.5 py-1.5 outline-none max-w-[320px] truncate cursor-pointer transition-opacity"
                               style={{
                                 background: colors.bgRaised,
-                                color: currentBatchId ? colors.text : colors.textFaint,
+                                color:
+                                  currentBatchId ?
+                                    colors.text
+                                    : colors.textFaint,
                                 border: `1px solid ${colors.border}`,
                                 opacity: isAssigningThisRow ? 0.6 : 1,
                               }}
@@ -704,171 +1264,32 @@ const Cargo = () => {
                         >
                           {c.notes || "—"}
                         </td>
+
+                        {/* QR Action */}
+                        <td className="py-3.5 px-4 pr-2 whitespace-nowrap text-right">
+                          <button
+                            type="button"
+                            onClick={() => openCargoQr(c)}
+                            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded cursor-pointer transition-opacity hover:opacity-80 font-medium"
+                            style={{
+                              background: colors.panelAlt,
+                              color: colors.ice,
+                              border: `1px solid ${colors.borderSoft}`,
+                            }}
+                            title={`View & print QR label for ${c.cargo_code || c.id}`}
+                          >
+                            <QrCode size={13}/>
+                            <span>QR</span>
+                          </button>
+                        </td>
                       </tr>
                     );
-                  })
-                )}
+                })
+              }
               </tbody>
             </table>
-          )}
+          }
         </div>
-      </Panel>
-
-      {/* Logistics Batches Section */}
-      <Panel
-        title={`Logistics Batches (${batches.length})`}
-        action={
-          <button
-            onClick={openCreateBatch}
-            className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded cursor-pointer transition-opacity hover:opacity-80"
-            style={{
-              background: colors.auroraBg,
-              color: colors.aurora,
-              border: `1px solid ${colors.auroraDim}`,
-            }}
-          >
-            <Plus size={13} /> New Logistics Batch
-          </button>
-        }
-      >
-        {loading && !initialized ? (
-          <CardSkeleton count={2} />
-        ) : batches.length === 0 ? (
-          <div
-            className="py-10 text-center text-xs rounded-lg"
-            style={{ color: colors.textMuted, border: `1px dashed ${colors.borderSoft}` }}
-          >
-            No logistics batches created yet. Click "New Logistics Batch" above to plan a batch for an expedition.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
-            {batches.map((b) => {
-              const assignedCargoList = cargo.filter(
-                (c) =>
-                  (c.logistics_batch_code && c.logistics_batch_code === b.batch_code) ||
-                  (c.logistics_batch_id && c.logistics_batch_id === b.id)
-              );
-              const cargoCount = b.cargo_count ?? assignedCargoList.length;
-
-              return (
-                <div
-                  key={b.id || b.batch_code}
-                  className="rounded-lg p-4 sm:p-5 flex flex-col justify-between gap-3.5 transition-colors"
-                  style={{
-                    background: colors.bgRaised,
-                    border: `1px solid ${colors.border}`,
-                  }}
-                >
-                  {/* Batch Header */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex flex-col gap-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="text-sm font-semibold tracking-wide"
-                          style={{ ...mono, color: colors.text }}
-                        >
-                          {b.batch_code}
-                        </span>
-                        <Pill tone={batchStatusTone(b.status)}>
-                          {formatStatus(b.status)}
-                        </Pill>
-                      </div>
-                      <div
-                        className="flex items-center gap-1.5 text-xs font-medium truncate"
-                        style={{ color: colors.text }}
-                      >
-                        <span>{b.origin_station_name || "—"}</span>
-                        <ArrowRight size={12} style={{ color: colors.textFaint }} />
-                        <span>{b.destination_station_name || "—"}</span>
-                      </div>
-                    </div>
-
-                    {/* Cargo count badge */}
-                    <div className="text-right flex-shrink-0">
-                      <div
-                        className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded"
-                        style={{
-                          background: colors.panelAlt,
-                          color: colors.ice,
-                          border: `1px solid ${colors.borderSoft}`,
-                        }}
-                      >
-                        <Package size={13} />
-                        <span style={{ ...mono }}>{cargoCount}</span>
-                        <span>{cargoCount === 1 ? "cargo item" : "cargo items"}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Batch Details Grid */}
-                  <div
-                    className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-3 text-xs"
-                    style={{ borderTop: `1px solid ${colors.borderSoft}` }}
-                  >
-                    {/* Linked expedition */}
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Compass
-                        size={13}
-                        className="flex-shrink-0"
-                        style={{ color: colors.textFaint }}
-                      />
-                      <span className="truncate" style={{ color: colors.textMuted }}>
-                        {b.expedition_name ? (
-                          <span style={{ color: colors.text, fontWeight: 500 }}>
-                            {b.expedition_name}
-                          </span>
-                        ) : (
-                          <span style={{ color: colors.textFaint }}>Unlinked expedition</span>
-                        )}
-                      </span>
-                    </div>
-
-                    {/* Planned Dispatch & Est. Arrival */}
-                    <div className="flex items-center gap-1.5 min-w-0 sm:justify-end">
-                      <Calendar
-                        size={13}
-                        className="flex-shrink-0"
-                        style={{ color: colors.textFaint }}
-                      />
-                      <span style={{ color: colors.textMuted, fontSize: 12 }}>
-                        {formatDisplayDate(b.planned_dispatch_at)} →{" "}
-                        {formatDisplayDate(b.estimated_arrival_at)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Assigned items tag list if any */}
-                  {assignedCargoList.length > 0 && (
-                    <div
-                      className="flex flex-wrap gap-1.5 pt-2"
-                      style={{ borderTop: `1px solid ${colors.borderSoft}` }}
-                    >
-                      {assignedCargoList.map((c) => (
-                        <span
-                          key={c.id}
-                          className="text-[11px] px-2 py-0.5 rounded flex items-center gap-1"
-                          style={{
-                            background: colors.panelAlt,
-                            color: colors.textMuted,
-                            border: `1px solid ${colors.borderSoft}`,
-                          }}
-                        >
-                          <Tag size={10} style={{ color: colors.textFaint }} />
-                          <span className="font-medium" style={{ color: colors.text, ...mono }}>
-                            {c.cargo_code || c.id}
-                          </span>
-                          {c.notes && (
-                            <span className="max-w-[120px] truncate">· {c.notes}</span>
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
       </Panel>
 
       {/* Modal: Create Cargo Request */}
@@ -911,22 +1332,38 @@ const Cargo = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField
-                label={form.expedition_id ? "Origin station (auto-filled)" : "Origin station"}
+                label={
+                  form.expedition_id ?
+                    "Origin station (auto-filled)"
+                    : "Origin station"
+                }
                 as="select"
                 options={stationOptions}
                 value={form.origin_station_id}
                 onChange={setC("origin_station_id")}
-                placeholder={form.expedition_id ? "Auto-assigned from expedition..." : "Select origin station..."}
+                placeholder={
+                  form.expedition_id ?
+                    "Auto-assigned from expedition..."
+                    : "Select origin station..."
+                }
                 disabled={Boolean(form.expedition_id)}
                 required
               />
               <FormField
-                label={form.expedition_id ? "Destination station (auto-filled)" : "Destination station"}
+                label={
+                  form.expedition_id ?
+                    "Destination station (auto-filled)"
+                    : "Destination station"
+                }
                 as="select"
                 options={stationOptions}
                 value={form.destination_station_id}
                 onChange={setC("destination_station_id")}
-                placeholder={form.expedition_id ? "Auto-assigned from expedition..." : "Select destination station..."}
+                placeholder={
+                  form.expedition_id ?
+                    "Auto-assigned from expedition..."
+                    : "Select destination station..."
+                }
                 disabled={Boolean(form.expedition_id)}
                 required
               />
@@ -943,7 +1380,8 @@ const Cargo = () => {
               >
                 <ArrowRight size={11} style={{ color: colors.aurora }} />
                 <span>
-                  Origin & destination automatically aligned and locked to linked expedition route.
+                  Origin & destination automatically aligned and locked to
+                  linked expedition route.
                 </span>
               </div>
             )}
@@ -980,7 +1418,10 @@ const Cargo = () => {
                 type="button"
                 onClick={() => setModalOpen(false)}
                 className="text-sm px-4 py-2 rounded cursor-pointer"
-                style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}
+                style={{
+                  color: colors.textMuted,
+                  border: `1px solid ${colors.border}`,
+                }}
               >
                 Cancel
               </button>
@@ -1004,7 +1445,10 @@ const Cargo = () => {
 
       {/* Modal: Create Logistics Batch */}
       {batchModalOpen && (
-        <Modal title="Create logistics batch" onClose={() => setBatchModalOpen(false)}>
+        <Modal
+          title="Create logistics batch"
+          onClose={() => setBatchModalOpen(false)}
+        >
           <form onSubmit={handleBatchSubmit} className="flex flex-col gap-4">
             {batchFormError && (
               <div
@@ -1048,7 +1492,7 @@ const Cargo = () => {
                 placeholder="Select linked expedition..."
                 required
               />
-              {selectedExpeditionForBatch ? (
+              {selectedExpeditionForBatch ?
                 <div
                   className="mt-1.5 text-[11px] px-2.5 py-1.5 rounded flex items-center gap-1.5"
                   style={{
@@ -1062,25 +1506,39 @@ const Cargo = () => {
                     <span>
                       Route automatically aligned to:{" "}
                       <strong style={{ color: colors.text }}>
-                        {selectedExpeditionForBatch.origin_station_name || "Origin Station"}
+                        {selectedExpeditionForBatch.origin_station_name ||
+                          "Origin Station"}
                       </strong>{" "}
                       →{" "}
                       <strong style={{ color: colors.text }}>
-                        {selectedExpeditionForBatch.destination_station_name || "Destination Station"}
+                        {selectedExpeditionForBatch.destination_station_name ||
+                          "Destination Station"}
                       </strong>
                     </span>
-                    {(selectedExpeditionForBatch.start_date || selectedExpeditionForBatch.end_date) && (
-                      <span className="text-[10px] mt-0.5 font-medium" style={{ color: colors.aurora }}>
-                        Dispatch & arrival dates autofilled: {formatDisplayDate(selectedExpeditionForBatch.start_date)} → {formatDisplayDate(selectedExpeditionForBatch.end_date)}
+                    {(selectedExpeditionForBatch.start_date ||
+                      selectedExpeditionForBatch.end_date) && (
+                      <span
+                        className="text-[10px] mt-0.5 font-medium"
+                        style={{color: colors.aurora}}
+                      >
+                        Dispatch & arrival dates autofilled:{" "}
+                        {formatDisplayDate(
+                          selectedExpeditionForBatch.start_date,
+                        )}{" "}
+                        →{" "}
+                        {formatDisplayDate(selectedExpeditionForBatch.end_date)}
                       </span>
                     )}
                   </span>
                 </div>
-              ) : (
-                <span className="text-[11px] mt-1 block" style={{ color: colors.textFaint }}>
-                  The backend automatically assigns origin and destination stations from this expedition.
+                : <span
+                  className="text-[11px] mt-1 block"
+                  style={{color: colors.textFaint}}
+                >
+                  The backend automatically assigns origin and destination
+                  stations from this expedition.
                 </span>
-              )}
+              }
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1115,7 +1573,10 @@ const Cargo = () => {
                 type="button"
                 onClick={() => setBatchModalOpen(false)}
                 className="text-sm px-4 py-2 rounded cursor-pointer"
-                style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}
+                style={{
+                  color: colors.textMuted,
+                  border: `1px solid ${colors.border}`,
+                }}
               >
                 Cancel
               </button>
@@ -1135,6 +1596,16 @@ const Cargo = () => {
             </div>
           </form>
         </Modal>
+      )}
+
+      {/* Modal: Cargo QR Generated / View */}
+      {qrModalOpen && (
+        <CargoQrModal
+          isOpen={qrModalOpen}
+          onClose={() => setQrModalOpen(false)}
+          cargo={qrModalCargo}
+          isNewlyCreated={isNewlyCreatedQr}
+        />
       )}
     </div>
   );

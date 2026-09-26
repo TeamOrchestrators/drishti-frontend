@@ -54,8 +54,6 @@ const Header = ({ onMenuClick }) => {
           <Clock size={13} />
           {antarcticaString}
         </span>
-        <span className="hidden sm:inline">-42°C</span>
-        <span className="hidden md:inline">Wind 38 mph</span>
         <span className="hidden lg:flex items-center gap-1.5">
           <Radio size={13} color={colors.aurora} /> All systems normal
         </span>

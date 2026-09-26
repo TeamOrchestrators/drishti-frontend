@@ -252,10 +252,11 @@ const Emergency = () => {
               onClick={() => fetchEmergencies(false)}
               disabled={loading || refreshing}
               title="Refresh incidents"
-              className="p-2 rounded cursor-pointer transition-opacity hover:opacity-80"
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded cursor-pointer transition-opacity hover:opacity-80 disabled:opacity-50"
               style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}
             >
-              <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+              <RefreshCw size={13} className={refreshing || loading ? "animate-spin" : ""}/>
+              <span className="hidden sm:inline">Refresh</span>
             </button>
             <button
               onClick={() => setModalOpen(true)}

@@ -110,6 +110,15 @@ export const cargoApi = {
       method: "PUT",
       body: JSON.stringify({ logistics_batch_id: batchId }),
     }),
+  getByQrToken: (qrToken) =>
+    apiRequest(`/api/cargo/qr/${encodeURIComponent(String(qrToken || "").trim())}`),
+  recordScan: (qrToken, scanData) =>
+    apiRequest(`/api/cargo/qr/${encodeURIComponent(String(qrToken || "").trim())}/scan`, {
+      method: "POST",
+      body: JSON.stringify(scanData),
+    }),
+  getBatchTracking: (batchId) =>
+    apiRequest(`/api/logistics-batches/${encodeURIComponent(String(batchId || "").trim())}/tracking`),
 };
 
 export const BHARTI_STATION_ID = "a1148ece-5c3f-4999-a3e8-344450614bbd";

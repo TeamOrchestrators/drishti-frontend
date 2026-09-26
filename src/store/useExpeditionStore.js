@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { expeditionsApi } from "../services/api";
+import {expeditionsApi, personnelApi} from "../services/api";
 
 export const useExpeditionStore = create((set, get) => ({
   expeditions: [],
@@ -14,10 +14,40 @@ export const useExpeditionStore = create((set, get) => ({
   fetchFormOptions: async () => {
     set({ formOptionsLoading: true });
     try {
-      const data = await expeditionsApi.getFormOptions();
+      const [formData, personnelData] = await Promise.allSettled([
+        expeditionsApi.getFormOptions(),
+        personnelApi.getAll(),
+      ]);
+
+      const formRes = formData.status === "fulfilled" ? formData.value : null;
+      const rawPersonnel = Array.isArray(formRes?.personnel) ? formRes.personnel : [];
+      const stationsList = Array.isArray(formRes?.stations) ? formRes.stations : [];
+
+      let totalPersonnelList = [];
+      if (personnelData.status === "fulfilled" && personnelData.value) {
+        totalPersonnelList = Array.isArray(personnelData.value.total_personnel)
+          ? personnelData.value.total_personnel
+          : [];
+      }
+
+      const enrichedPersonnel = rawPersonnel.map((p) => {
+        const match = totalPersonnelList.find(
+          (tp) =>
+            tp.personnel_id === p.id ||
+            tp.id === p.id ||
+            String(tp.name || "").trim().toLowerCase() === String(p.full_name || "").trim().toLowerCase()
+        );
+        return {
+          ...p,
+          current_station: match?.current_station || match?.current_station_name || p.current_station || null,
+          current_station_id: match?.current_station_id || p.current_station_id || null,
+          status: match?.status || p.status || null,
+        };
+      });
+
       set({
-        stations: Array.isArray(data?.stations) ? data.stations : [],
-        personnel: Array.isArray(data?.personnel) ? data.personnel : [],
+        stations: stationsList,
+        personnel: enrichedPersonnel,
         formOptionsLoading: false,
       });
     } catch (err) {
@@ -32,7 +62,7 @@ export const useExpeditionStore = create((set, get) => ({
       // Fetch expeditions and form-options concurrently for fast rendering
       const [expData] = await Promise.all([
         expeditionsApi.getAll(),
-        get().stations.length === 0 ? get().fetchFormOptions() : Promise.resolve(),
+        get().fetchFormOptions(),
       ]);
 
       set({

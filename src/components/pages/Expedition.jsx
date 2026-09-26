@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import {useEffect, useState, useMemo} from "react";
 import { Plus, MapPin, Pencil, Calendar, AlertCircle, RefreshCw, Compass } from "lucide-react";
 import Panel from "../ui/Panel";
 import Pill from "../ui/Pill";
@@ -8,15 +8,37 @@ import Modal from "../ui/Modal.jsx";
 import { CardSkeleton } from "../ui/Skeleton.jsx";
 import { colors, mono } from "../../theme.js";
 import { useExpeditionStore } from "../../store/useExpeditionStore.js";
+import {usePersonnelStore} from "../../store/usePersonnelStore.js";
+
+function isStationMatch(station, currentStation) {
+  if (!station || !currentStation) return false;
+
+  const currentStr = String(currentStation).trim().toLowerCase();
+  const stationId = String(station.id || "").trim().toLowerCase();
+  const stationName = String(station.name || "").trim().toLowerCase();
+  const stationCode = String(station.code || "").trim().toLowerCase();
+
+  // Match by ID
+  if (currentStr === stationId) return true;
+
+  // Match by exact Name or Code
+  if (currentStr === stationName || currentStr === stationCode) return true;
+
+  // Substring / fuzzy match (e.g. "Bharti" matches "Bharti Research Station")
+  if (stationName.includes(currentStr) || currentStr.includes(stationName)) return true;
+  if (stationCode && (currentStr.includes(stationCode) || stationCode.includes(currentStr))) return true;
+
+  return false;
+}
 
 const statusOptions = [
-  { value: "draft", label: "draft" },
-  { value: "planned", label: "planned" },
-  { value: "ready", label: "ready" },
-  { value: "active", label: "active" },
-  { value: "sheltered", label: "sheltered" },
-  { value: "completed", label: "completed" },
-  { value: "cancelled", label: "cancelled" },
+  {value: "draft", label: "Draft"},
+  {value: "planned", label: "Planned"},
+  {value: "ready", label: "Ready"},
+  {value: "active", label: "Active"},
+  {value: "sheltered", label: "Sheltered"},
+  {value: "completed", label: "Completed"},
+  {value: "cancelled", label: "Cancelled"},
 ];
 
 const statusTone = {
@@ -109,6 +131,11 @@ const Expedition = () => {
     updateExpedition,
   } = useExpeditionStore();
 
+  const {
+    totalPersonnel,
+    fetchPersonnel,
+  } = usePersonnelStore();
+
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -116,7 +143,10 @@ const Expedition = () => {
 
   useEffect(() => {
     fetchExpeditions();
-  }, [fetchExpeditions]);
+    if (!totalPersonnel || totalPersonnel.length === 0) {
+      fetchPersonnel();
+    }
+  }, [fetchExpeditions, fetchPersonnel, totalPersonnel]);
 
   // Use live form options from API
   const stationOptions = apiStations.map((s) => ({
@@ -124,10 +154,48 @@ const Expedition = () => {
     label: `${s.name}${s.code ? ` (${s.code})` : ""}`,
   }));
 
-  const personnelOptions = apiPersonnel.map((p) => ({
-    value: p.id,
-    label: `${p.full_name} (${p.role || p.personnel_code || "Personnel"})`,
-  }));
+  // Selected origin station object
+  const selectedOriginStation = useMemo(() => {
+    if (!form.origin_station_id) return null;
+    return apiStations.find((s) => s.id === form.origin_station_id) || null;
+  }, [form.origin_station_id, apiStations]);
+
+  // Filter personnel stationed at the selected origin station
+  const filteredPersonnel = useMemo(() => {
+    if (!form.origin_station_id || !selectedOriginStation) {
+      return [];
+    }
+
+    return apiPersonnel.filter((p) => {
+      // Find current station from p (enriched in useExpeditionStore) or fallback to totalPersonnel
+      const tp = (totalPersonnel || []).find(
+        (t) =>
+          t.personnel_id === p.id ||
+          t.id === p.id ||
+          String(t.name || "").trim().toLowerCase() === String(p.full_name || "").trim().toLowerCase()
+      );
+      const currentStation = p.current_station || tp?.current_station || tp?.current_station_name || null;
+      if (!currentStation) return false;
+
+      return isStationMatch(selectedOriginStation, currentStation);
+    });
+  }, [form.origin_station_id, selectedOriginStation, apiPersonnel, totalPersonnel]);
+
+  // Personnel options for Team Leader dropdown
+  const personnelOptions = useMemo(() => {
+    const list = [...filteredPersonnel];
+    // If editing and existing leader is not in filtered list, include them so selection isn't lost
+    if (editingId && form.team_leader_id && !list.some((p) => p.id === form.team_leader_id)) {
+      const existing = apiPersonnel.find((p) => p.id === form.team_leader_id);
+      if (existing) {
+        list.unshift(existing);
+      }
+    }
+    return list.map((p) => ({
+      value: p.id,
+      label: `${p.full_name} (${p.role || p.personnel_code || "Personnel"})`,
+    }));
+  }, [filteredPersonnel, editingId, form.team_leader_id, apiPersonnel]);
 
   const resolveStationName = (id) => {
     if (!id) return "—";
@@ -148,6 +216,23 @@ const Expedition = () => {
         ...f,
         [key]: key === "status" && typeof value === "string" ? value.toLowerCase() : value,
       };
+      if (key === "origin_station_id") {
+        if (value !== f.origin_station_id && f.team_leader_id) {
+          // If origin station changed, check if current team leader is stationed at the new origin station
+          const targetStation = apiStations.find((s) => s.id === value);
+          const currentLeader = apiPersonnel.find((p) => p.id === f.team_leader_id);
+          const tp = (totalPersonnel || []).find(
+            (t) =>
+              t.personnel_id === f.team_leader_id ||
+              t.id === f.team_leader_id ||
+              String(t.name || "").trim().toLowerCase() === String(currentLeader?.full_name || "").trim().toLowerCase()
+          );
+          const currentStation = currentLeader?.current_station || tp?.current_station || tp?.current_station_name;
+          if (!targetStation || !currentStation || !isStationMatch(targetStation, currentStation)) {
+            next.team_leader_id = "";
+          }
+        }
+      }
       if (key === "start_date" && value && next.end_date && next.end_date < value) {
         next.end_date = "";
       }
@@ -593,15 +678,38 @@ const Expedition = () => {
               />
             </div>
 
-            <FormField
-              label="Team leader"
-              as="select"
-              options={personnelOptions}
-              value={form.team_leader_id}
-              onChange={set("team_leader_id")}
-              placeholder="Select team leader..."
-              required
-            />
+            <div className="flex flex-col gap-1.5">
+              <FormField
+                label="Team leader"
+                as="select"
+                options={personnelOptions}
+                value={form.team_leader_id}
+                onChange={set("team_leader_id")}
+                placeholder={
+                  !form.origin_station_id
+                    ? "Select origin station first..."
+                    : personnelOptions.length === 0
+                      ? "No personnel stationed here"
+                      : "Select team leader..."
+                }
+                disabled={!form.origin_station_id || personnelOptions.length === 0}
+                required
+              />
+              {form.origin_station_id ? (
+                <span
+                  className="text-[11px]"
+                  style={{color: personnelOptions.length > 0 ? colors.textMuted : colors.flare}}
+                >
+                  {personnelOptions.length > 0
+                    ? `Showing ${personnelOptions.length} personnel currently stationed at ${selectedOriginStation?.name || "selected origin station"}.`
+                    : `No personnel are currently stationed at ${selectedOriginStation?.name || "the selected origin station"}.`}
+                </span>
+              ) : (
+                <span className="text-[11px]" style={{color: colors.textFaint}}>
+                  Select an origin station above to show available personnel stationed there.
+                </span>
+              )}
+            </div>
 
             <FormField
               label="Status"

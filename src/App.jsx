@@ -8,6 +8,7 @@ import Overview from "./components/pages/Overview";
 import Expedition from "./components/pages/Expedition";
 import Personnel from "./components/pages/Personnel";
 import Cargo from "./components/pages/Cargo";
+import CargoScan from "./components/pages/CargoScan";
 import Inventory from "./components/pages/Inventory";
 import Emergency from "./components/pages/Emergency";
 import EmergencyDeviceSimulator from "./components/pages/EmergencyDeviceSimulator";
@@ -22,6 +23,7 @@ function PageTitleHandler() {
       "/expeditions": "Expeditions",
       "/personnel": "Personnel",
       "/cargo": "Cargo & Logistics",
+      "/cargo/scan": "Cargo QR Scanner",
       "/inventory": "Inventory",
       "/emergency": "Emergency",
       "/emergency/device/simulate": "Emergency Device Simulator",
@@ -31,7 +33,8 @@ function PageTitleHandler() {
     let pageName = routeTitles[pathname];
 
     if (!pageName) {
-      if (pathname.startsWith("/expeditions")) pageName = "Expeditions";
+      if (pathname.startsWith("/cargo/scan")) pageName = "Cargo QR Scanner";
+      else if (pathname.startsWith("/expeditions")) pageName = "Expeditions";
       else if (pathname.startsWith("/personnel")) pageName = "Personnel";
       else if (pathname.startsWith("/cargo")) pageName = "Cargo & Logistics";
       else if (pathname.startsWith("/inventory")) pageName = "Inventory";
@@ -86,6 +89,7 @@ export default function App() {
             <Route path="/expeditions" element={<Expedition />} />
             <Route path="/personnel" element={<Personnel />} />
             <Route path="/cargo" element={<Cargo />} />
+            <Route path="/cargo/scan" element={<CargoScan/>}/>
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/emergency" element={<Emergency />} />
             <Route path="*" element={<Navigate to="/overview" replace />} />

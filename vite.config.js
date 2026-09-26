@@ -27,11 +27,23 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
     server: {
+      allowedHosts: [
+        "stump-vitamins-talisman.ngrok-free.dev",
+        ".ngrok-free.dev",
+        ".ngrok.io",
+        ".ngrok.app",
+      ],
       proxy: {
         "/api": proxyConfig,
       },
     },
     preview: {
+      allowedHosts: [
+        "stump-vitamins-talisman.ngrok-free.dev",
+        ".ngrok-free.dev",
+        ".ngrok.io",
+        ".ngrok.app",
+      ],
       proxy: {
         "/api": proxyConfig,
       },

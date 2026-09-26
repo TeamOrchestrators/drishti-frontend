@@ -8,7 +8,7 @@ import {
   Package,
   RefreshCw,
   Loader2,
-  ShieldAlert,
+  Check,
 } from "lucide-react";
 import { colors, mono } from "../../theme";
 import Panel from "../ui/Panel";
@@ -389,10 +389,11 @@ export default function InventoryView() {
               onClick={() => fetchInventory()}
               disabled={loading}
               title="Refresh inventory"
-              className="p-2 rounded cursor-pointer transition-opacity hover:opacity-80"
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded cursor-pointer transition-opacity hover:opacity-80 disabled:opacity-50"
               style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}
             >
-              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+              <RefreshCw size={13} className={loading ? "animate-spin" : ""}/>
+              <span className="hidden sm:inline">Refresh</span>
             </button>
             <button
               onClick={openAddItemModal}
@@ -500,7 +501,10 @@ export default function InventoryView() {
             }
 
             return (
-              <Panel key={i.inventory_id || i.item_id || i.item_code}>
+              <Panel
+                key={i.inventory_id || i.item_id || i.item_code}
+                style={i.is_critical ? {borderLeft: `3px solid ${colors.flare}`} : undefined}
+              >
                 {/* Header: Item Name, Code, Category · Unit, Status Pill */}
                 <div className="flex items-start justify-between mb-3 gap-2">
                   <div className="min-w-0">
@@ -510,7 +514,7 @@ export default function InventoryView() {
                       </span>
                       {i.item_code && (
                         <span
-                          className="text-[11px] px-1.5 py-0.5 rounded font-medium"
+                          className="text-[11px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
                           style={{
                             background: colors.panelAlt,
                             color: colors.textFaint,
@@ -518,15 +522,6 @@ export default function InventoryView() {
                           }}
                         >
                           {i.item_code}
-                        </span>
-                      )}
-                      {i.is_critical && (
-                        <span
-                          title="Critical item"
-                          className="flex items-center"
-                          style={{ color: colors.flare }}
-                        >
-                          <ShieldAlert size={13} />
                         </span>
                       )}
                     </div>
@@ -745,37 +740,57 @@ export default function InventoryView() {
               />
             </div>
 
-            {/* Critical item toggle switch */}
-            <div
-              className="flex items-center justify-between p-3 rounded-md"
+            {/* Critical item checkbox */}
+            <label
+              className="flex items-center justify-between p-3 rounded-md cursor-pointer select-none transition-colors"
               style={{
                 background: colors.panelAlt,
-                border: `1px solid ${colors.borderSoft}`,
+                border: `1px solid ${itemForm.is_critical ? colors.flareDim : colors.borderSoft}`,
               }}
             >
-              <div className="flex flex-col">
-                <span className="text-xs font-medium" style={{ color: colors.text }}>
-                  Critical item
-                </span>
+              <div className="flex flex-col pr-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-medium" style={{color: colors.text}}>
+                    Critical item
+                  </span>
+                  {itemForm.is_critical && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      style={{
+                        background: colors.flareBg,
+                        color: colors.flare,
+                        border: `1px solid ${colors.flareDim}`,
+                      }}
+                    >
+                      Priority
+                    </span>
+                  )}
+                </div>
                 <span className="text-[11px]" style={{ color: colors.textMuted }}>
                   Flag as high-priority critical life-support supply
                 </span>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
+              <div className="flex items-center">
                 <input
                   type="checkbox"
                   checked={itemForm.is_critical}
                   onChange={(e) => setItemForm((f) => ({ ...f, is_critical: e.target.checked }))}
-                  className="sr-only peer"
+                  className="sr-only"
                 />
                 <div
-                  className="w-10 h-5 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"
+                  className="w-5 h-5 rounded flex items-center justify-center transition-all"
                   style={{
-                    backgroundColor: itemForm.is_critical ? colors.flare : undefined,
+                    background: itemForm.is_critical ? colors.flare : colors.bgRaised,
+                    border: `1.5px solid ${itemForm.is_critical ? colors.flare : colors.border}`,
+                    boxShadow: itemForm.is_critical ? `0 0 0 1px ${colors.flareDim}` : "none",
                   }}
-                />
-              </label>
-            </div>
+                >
+                  {itemForm.is_critical && (
+                    <Check size={13} strokeWidth={3} className="text-white"/>
+                  )}
+                </div>
+              </div>
+            </label>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <FormField
