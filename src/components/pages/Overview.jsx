@@ -3,6 +3,10 @@ import {
   Package,
   TriangleAlert,
   Users,
+  Radio,
+  Map as MapIcon,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { colors, mono } from "../../theme";
 import Panel from "../ui/Panel";
@@ -16,9 +20,11 @@ import { useExpeditionStore } from "../../store/useExpeditionStore.js";
 import { usePersonnelStore } from "../../store/usePersonnelStore.js";
 import { useCargoStore } from "../../store/useCargoStore.js";
 import { useInventoryStore } from "../../store/useInventoryStore.js";
-import { useState, useEffect, useCallback } from "react";
-import { emergencyApi } from "../../services/api.js";
+import {useState, useEffect, useCallback, useMemo, lazy, Suspense} from "react";
+import {useEmergencyStore} from "../../store/useEmergencyStore.js";
 import { formatCoordinates } from "../../utils/geo";
+
+const EmergencyMap = lazy(() => import("../emergency/EmergencyMap.jsx"));
 
 const Overview = ({ go }) => {
   const navigate = useNavigate();
@@ -27,9 +33,16 @@ const Overview = ({ go }) => {
     else navigate(`/${view}`);
   };
 
-  const [activeEmergencies, setActiveEmergencies] = useState([]);
+  const {
+    activeEmergencies,
+    latestTelemetry,
+    telemetryTracks,
+    fetchActive: fetchActiveEmergencies,
+  } = useEmergencyStore();
+
   const [emergenciesLoading, setEmergenciesLoading] = useState(true);
   const [timedOut, setTimedOut] = useState(false);
+  const [showLiveRouteMap, setShowLiveRouteMap] = useState(true);
 
   useEffect(() => {
     const timer = setTimeout(() => setTimedOut(true), 6000);
@@ -38,36 +51,45 @@ const Overview = ({ go }) => {
 
   useEffect(() => {
     let isMounted = true;
-    async function fetchActive() {
-      try {
-        const data = await emergencyApi.getActive();
-        const list = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.emergencies)
-          ? data.emergencies
-          : [];
-        if (isMounted) {
-          setActiveEmergencies(list);
-        }
-      } catch (err) {
-        console.warn("Failed to fetch active emergencies:", err);
-      } finally {
-        if (isMounted) {
-          setEmergenciesLoading(false);
-        }
-      }
-    }
-
-    fetchActive();
-    const interval = setInterval(fetchActive, 10000);
+    fetchActiveEmergencies().finally(() => {
+      if (isMounted) setEmergenciesLoading(false);
+    });
+    const interval = setInterval(fetchActiveEmergencies, 10000);
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [fetchActiveEmergencies]);
 
-  const activeEmergenciesCount = activeEmergencies.length;
-  const newestActiveEmergency = activeEmergencies.length > 0 ? activeEmergencies[0] : null;
+  const newestActiveEmergency = useMemo(() => {
+    if (activeEmergencies && activeEmergencies.length > 0) {
+      return activeEmergencies[0];
+    }
+    if (latestTelemetry && latestTelemetry.latitude != null && latestTelemetry.longitude != null) {
+      return {
+        id: latestTelemetry.emergencyId || latestTelemetry.deviceId || "live-telemetry",
+        emergency_code: "LIVE-FIELD-01",
+        emergency_type: "field_tracking",
+        severity: "immediate_response",
+        status: "active",
+        summary: latestTelemetry.summary || `Live tracking active · ${latestTelemetry.device_label || latestTelemetry.deviceId || "Field Device"}`,
+        latitude: latestTelemetry.latitude,
+        longitude: latestTelemetry.longitude,
+        location_accuracy_m: latestTelemetry.accuracy || latestTelemetry.location_accuracy_m || 8,
+        heading_deg: latestTelemetry.heading_deg,
+        speed_mps: latestTelemetry.speed_mps,
+        battery_percent: latestTelemetry.battery_percent,
+        reported_by_name: latestTelemetry.reported_by_name || "Field Team",
+        device_label: latestTelemetry.device_label || latestTelemetry.deviceId || "SIM-BHARTI-01",
+        device_id: latestTelemetry.deviceId,
+        last_heartbeat_at: latestTelemetry.timestamp,
+        reported_at: latestTelemetry.timestamp,
+      };
+    }
+    return null;
+  }, [activeEmergencies, latestTelemetry]);
+
+  const activeEmergenciesCount = activeEmergencies.length > 0 ? activeEmergencies.length : (newestActiveEmergency ? 1 : 0);
 
   const {
     expeditions,
@@ -174,47 +196,123 @@ const Overview = ({ go }) => {
     <div className="flex flex-col gap-5 sm:gap-6">
       <SectionHeading>Operational overview</SectionHeading>
 
-      {/* Active Emergency Alert Banner */}
+      {/* Active Emergency & Live Field Telemetry Alert Banner */}
       {newestActiveEmergency && (
         <div
-          className="rounded-lg px-4 sm:px-5 py-3.5 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4"
+          className="rounded-lg p-4 sm:p-5 flex flex-col gap-3.5 transition-all shadow-md"
           style={{
             background: colors.flareBg,
             border: `1px solid ${colors.flareDim}`,
           }}
         >
-          <div className="flex items-start sm:items-center gap-3 min-w-0">
-            <TriangleAlert
-              size={18}
-              color={colors.flare}
-              strokeWidth={2}
-              className="flex-shrink-0 mt-0.5 sm:mt-0"
-            />
-            <div className="min-w-0">
-              <span
-                className="text-sm font-semibold"
-                style={{ color: colors.flare }}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+            <div className="flex items-start sm:items-center gap-3 min-w-0">
+              <div className="relative flex items-center justify-center flex-shrink-0 mt-0.5 sm:mt-0">
+                <span className="animate-ping absolute inline-flex h-4 w-4 rounded-full bg-rose-400 opacity-75"></span>
+                <TriangleAlert
+                  size={18}
+                  color={colors.flare}
+                  strokeWidth={2.2}
+                  className="relative"
+                />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className="text-sm font-bold"
+                    style={{color: colors.flare}}
+                  >
+                    {newestActiveEmergency.summary || newestActiveEmergency.emergency_type || "Emergency incident"}
+                  </span>
+                  <span
+                    className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded tracking-wider uppercase"
+                    style={{
+                      background: colors.flareTint,
+                      color: colors.flare,
+                      border: `1px solid ${colors.flareDim}`,
+                    }}
+                  >
+                    {newestActiveEmergency.emergency_code || "LIVE TELEMETRY"}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mt-1"
+                     style={{color: colors.textMuted}}>
+                  <span className="flex items-center gap-1 font-mono font-medium" style={{color: colors.ice}}>
+                    <Radio size={11} className="animate-pulse" style={{color: colors.flare}}/>
+                    {newestActiveEmergency.latitude != null && newestActiveEmergency.longitude != null
+                      ? `${Number(newestActiveEmergency.latitude).toFixed(6)}°, ${Number(newestActiveEmergency.longitude).toFixed(6)}°`
+                      : "Coordinates unavailable"}
+                  </span>
+                  {newestActiveEmergency.device_label && (
+                    <span>Device: <strong
+                      style={{color: colors.text}}>{newestActiveEmergency.device_label}</strong></span>
+                  )}
+                  {newestActiveEmergency.speed_mps != null && (
+                    <span>Speed: <strong
+                      style={{color: colors.text}}>{newestActiveEmergency.speed_mps} m/s</strong></span>
+                  )}
+                  {newestActiveEmergency.last_heartbeat_at && (
+                    <span>Heartbeat: {new Date(newestActiveEmergency.last_heartbeat_at).toLocaleTimeString()}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 self-start sm:self-auto flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowLiveRouteMap((prev) => !prev)}
+                className="text-xs font-semibold px-3 py-1.5 rounded cursor-pointer flex items-center gap-1.5 transition-colors hover:brightness-110"
+                style={{
+                  color: colors.text,
+                  background: colors.panelAlt,
+                  border: `1px solid ${colors.border}`,
+                }}
               >
-                {newestActiveEmergency.summary || newestActiveEmergency.emergency_type || "Emergency incident"}
-              </span>
-              <span className="text-xs sm:text-sm ml-2" style={{ color: colors.textMuted }}>
-                {formatCoordinates(newestActiveEmergency.latitude, newestActiveEmergency.longitude) || "Coordinates unavailable"}
-                {newestActiveEmergency.people_affected != null ? ` · ${newestActiveEmergency.people_affected} affected` : ""}
-                {newestActiveEmergency.reported_at ? ` · ${new Date(newestActiveEmergency.reported_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}
-              </span>
+                <MapIcon size={13} style={{color: colors.ice}}/>
+                <span>{showLiveRouteMap ? "Hide route map" : "Show route map"}</span>
+                {showLiveRouteMap ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
+              </button>
+              <button
+                type="button"
+                onClick={() => navigateTo("emergency")}
+                className="text-xs font-semibold px-3 py-1.5 rounded cursor-pointer transition-colors hover:brightness-110"
+                style={{
+                  color: colors.flare,
+                  background: colors.flareTint,
+                  border: `1px solid ${colors.flareDim}`,
+                }}
+              >
+                View response
+              </button>
             </div>
           </div>
-          <button
-            onClick={() => navigateTo("emergency")}
-            className="text-sm font-medium px-3 py-1.5 rounded cursor-pointer self-start sm:self-auto flex-shrink-0"
-            style={{
-              color: colors.flare,
-              background: colors.flareTint,
-              border: `1px solid ${colors.flareDim}`,
-            }}
-          >
-            View response
-          </button>
+
+          {/* Embedded live route map tracing the device path */}
+          {showLiveRouteMap && newestActiveEmergency.latitude != null && newestActiveEmergency.longitude != null && (
+            <div className="mt-1 pt-3 border-t border-rose-950/40">
+              <div className="text-[11px] font-medium mb-1.5 flex items-center justify-between"
+                   style={{color: colors.textFaint}}>
+                <span>Real-time GPS Trail & Waypoint Plotter</span>
+                <span className="font-mono text-[10px]" style={{color: colors.amber}}>Live dynamic trace active</span>
+              </div>
+              <Suspense
+                fallback={
+                  <div
+                    className="w-full h-[260px] sm:h-[320px] rounded-lg flex items-center justify-center text-xs gap-2"
+                    style={{
+                      background: colors.bgRaised,
+                      border: `1px solid ${colors.border}`,
+                      color: colors.textMuted,
+                    }}
+                  >
+                    <span>Initializing live map tracking...</span>
+                  </div>
+                }
+              >
+                <EmergencyMap emergency={newestActiveEmergency}/>
+              </Suspense>
+            </div>
+          )}
         </div>
       )}
 

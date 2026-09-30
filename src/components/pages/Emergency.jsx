@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import {useState, useEffect, useCallback, useMemo, lazy, Suspense} from "react";
 import { Link } from "react-router-dom";
 import {
   TriangleAlert,
@@ -105,10 +105,50 @@ const Emergency = () => {
   const [toast, setToast] = useState(null);
   const [expandedMapIds, setExpandedMapIds] = useState({});
 
+  const storeEmergencies = useEmergencyStore((s) => s.emergencies);
+  const storeActive = useEmergencyStore((s) => s.activeEmergencies);
+  const latestTelemetry = useEmergencyStore((s) => s.latestTelemetry);
+  const telemetryTracks = useEmergencyStore((s) => s.telemetryTracks);
+
+  const displayList = useMemo(() => {
+    let base =
+      emergencies.length > 0
+        ? emergencies
+        : storeEmergencies.length > 0
+          ? storeEmergencies
+          : storeActive;
+
+    const list = base.map((e) => {
+      const tr =
+        telemetryTracks[e.id] ||
+        telemetryTracks[e.device_id] ||
+        telemetryTracks["global_live_track"] ||
+        [];
+      if (tr.length > 0) {
+        const last = tr[tr.length - 1];
+        return {
+          ...e,
+          latitude: last.lat,
+          longitude: last.lng,
+          location_accuracy_m: last.accuracy || e.location_accuracy_m,
+          heading_deg: last.heading ?? e.heading_deg,
+          speed_mps: last.speed ?? e.speed_mps,
+          last_heartbeat_at: last.timestamp || e.last_heartbeat_at,
+        };
+      }
+      return e;
+    });
+
+    if (list.length === 0 && storeActive.length > 0) {
+      return storeActive;
+    }
+    return list;
+  }, [emergencies, storeEmergencies, storeActive, latestTelemetry, telemetryTracks]);
+
   const toggleMap = useCallback((id) => {
     setExpandedMapIds((prev) => ({
       ...prev,
-      [id]: !prev[id],
+      [id]: prev[id] !== undefined ? !prev[id] : false,
     }));
   }, []);
 
@@ -272,7 +312,7 @@ const Emergency = () => {
       </SectionHeading>
 
       {/* Loading Skeleton */}
-      {loading && emergencies.length === 0 ? (
+      {loading && displayList.length === 0 ? (
         <div className="flex flex-col gap-4">
           {[1, 2].map((idx) => (
             <div
@@ -291,7 +331,7 @@ const Emergency = () => {
             </div>
           ))}
         </div>
-      ) : emergencies.length === 0 ? (
+      ) : displayList.length === 0 ? (
         /* Empty State */
         <div
           className="py-14 px-6 text-center rounded-xl flex flex-col items-center justify-center gap-3"
@@ -318,7 +358,7 @@ const Emergency = () => {
       ) : (
         /* Emergency Cards */
         <div className="flex flex-col gap-4">
-          {emergencies.map((e) => {
+          {displayList.map((e) => {
             const rawStatus = (e.status || "active").toLowerCase();
             const isActive = rawStatus === "active" || rawStatus === "immediate_response";
             const canResolve = ["active", "acknowledged", "responding"].includes(rawStatus) && !["resolved", "cancelled"].includes(rawStatus);
@@ -327,6 +367,7 @@ const Emergency = () => {
             const coords = formatCoordinates(e.latitude, e.longitude);
             const title = e.summary || e.emergency_type || "Emergency incident";
             const code = e.emergency_code || e.id;
+            const isMapExpanded = expandedMapIds[e.id] !== undefined ? expandedMapIds[e.id] : (isActive && hasValidCoordinates(e));
 
             const hasMetadata =
               e.reported_by_name ||
@@ -375,15 +416,15 @@ const Emergency = () => {
                         <div className="mt-2">
                           <button
                             type="button"
-                            onClick={() => toggleMap(e.id)}
+                            onClick={() => toggleMap(e.id, isMapExpanded)}
                             className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded cursor-pointer transition-all hover:opacity-90 active:scale-[0.98]"
                             style={{
-                              color: expandedMapIds[e.id] ? colors.ice : colors.text,
-                              background: expandedMapIds[e.id]
+                              color: isMapExpanded ? colors.ice : colors.text,
+                              background: isMapExpanded
                                 ? (colors.iceTint || colors.panelAlt)
                                 : colors.panelAlt,
                               border: `1px solid ${
-                                expandedMapIds[e.id]
+                                isMapExpanded
                                   ? (colors.iceDim || colors.border)
                                   : colors.border
                               }`,
@@ -391,9 +432,9 @@ const Emergency = () => {
                           >
                             <MapPin
                               size={12}
-                              style={{ color: expandedMapIds[e.id] ? colors.ice : colors.flare }}
+                              style={{color: isMapExpanded ? colors.ice : colors.flare}}
                             />
-                            <span>{expandedMapIds[e.id] ? "Hide map" : "View location on map"}</span>
+                            <span>{isMapExpanded ? "Hide map" : "View location on map"}</span>
                           </button>
                         </div>
                       )}
@@ -478,8 +519,8 @@ const Emergency = () => {
                     </div>
                   )}
 
-                  {/* Interactive Map Section (only rendered when expanded) */}
-                  {expandedMapIds[e.id] && hasValidCoordinates(e) && (
+                  {/* Interactive Map Section (rendered when expanded or active with valid coords) */}
+                  {isMapExpanded && hasValidCoordinates(e) && (
                     <div
                       className="pt-3 pb-1"
                       style={{ borderTop: `1px solid ${colors.borderSoft}` }}

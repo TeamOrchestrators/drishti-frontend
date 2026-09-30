@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Navigation,
   ChevronRight,
+  Calendar,
   X,
 } from "lucide-react";
 import Panel from "../ui/Panel";
@@ -92,6 +93,48 @@ function getInitials(name) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+function isStationMatch(station, currentStation) {
+  if (!station || !currentStation) return false;
+
+  const currentStr = String(currentStation).trim().toLowerCase();
+  if (typeof station === "string") {
+    const sStr = station.trim().toLowerCase();
+    return sStr === currentStr || sStr.includes(currentStr) || currentStr.includes(sStr);
+  }
+
+  const stationId = String(station.id || "").trim().toLowerCase();
+  const stationName = String(station.name || "").trim().toLowerCase();
+  const stationCode = String(station.code || "").trim().toLowerCase();
+
+  // Match by ID
+  if (stationId && currentStr === stationId) return true;
+
+  // Match by exact Name or Code
+  if (stationName && currentStr === stationName) return true;
+  if (stationCode && currentStr === stationCode) return true;
+
+  // Substring / fuzzy match (e.g. "Bharti" matches "Bharti Research Station")
+  if (stationName && (stationName.includes(currentStr) || currentStr.includes(stationName))) return true;
+  if (stationCode && (stationCode.includes(currentStr) || currentStr.includes(stationCode))) return true;
+
+  return false;
+}
+
+function toDateInputValue(d) {
+  if (!d) return "";
+  if (typeof d === "string") {
+    const match = d.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) return match[1];
+  }
+  try {
+    const date = new Date(d);
+    if (isNaN(date.getTime())) return "";
+    return date.toISOString().split("T")[0];
+  } catch {
+    return "";
+  }
+}
+
 const emptyForm = {
   expedition_id: "",
   personnel_id: "",
@@ -121,6 +164,7 @@ const Personnel = () => {
   const {
     expeditions: liveExpeditions,
     stations: liveStations,
+    fetchExpeditions,
   } = useExpeditionStore();
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -133,20 +177,10 @@ const Personnel = () => {
   useEffect(() => {
     fetchPersonnel();
     fetchAssignmentFormOptions();
-  }, [fetchPersonnel, fetchAssignmentFormOptions]);
-
-  const set = (key) => (value) => {
-    setForm((f) => {
-      const next = { ...f, [key]: value };
-      if (key === "departure_time" && value && next.arrival_time && next.arrival_time < value) {
-        next.arrival_time = "";
-      }
-      if (key === "arrival_time" && value && next.departure_time && value < next.departure_time) {
-        next.arrival_time = "";
-      }
-      return next;
-    });
-  };
+    if (fetchExpeditions) {
+      fetchExpeditions();
+    }
+  }, [fetchPersonnel, fetchAssignmentFormOptions, fetchExpeditions]);
 
   // Helper to resolve station names from live API stations
   const resolveStation = useCallback((id) => {
@@ -155,10 +189,123 @@ const Personnel = () => {
     return found ? found.name : id;
   }, [liveStations]);
 
-  // Expeditions list from formOptions or live store
+  // Expeditions list merged from formOptions and live store
   const availableExpeditions = useMemo(() => {
-    return formOptions.expeditions?.length > 0 ? formOptions.expeditions : liveExpeditions;
+    const list = [...(formOptions.expeditions || []), ...(liveExpeditions || [])];
+    const map = new Map();
+    for (const exp of list) {
+      const id = exp.id || exp.expedition_id;
+      if (!id) continue;
+      if (map.has(id)) {
+        map.set(id, {...map.get(id), ...exp, id});
+      } else {
+        map.set(id, {...exp, id});
+      }
+    }
+    return Array.from(map.values());
   }, [formOptions.expeditions, liveExpeditions]);
+
+  // Selected expedition object
+  const selectedExpedition = useMemo(() => {
+    if (!form.expedition_id) return null;
+    return availableExpeditions.find((e) => e.id === form.expedition_id || e.expedition_id === form.expedition_id) || null;
+  }, [availableExpeditions, form.expedition_id]);
+
+  // Origin station of selected expedition
+  const selectedExpeditionOriginStation = useMemo(() => {
+    if (!selectedExpedition && !form.origin_station_id) return null;
+
+    const originId =
+      form.origin_station_id ||
+      selectedExpedition?.origin_station_id ||
+      selectedExpedition?.originStationId ||
+      null;
+
+    const originName =
+      selectedExpedition?.origin_station_name ||
+      (typeof selectedExpedition?.origin_station === "string" ? selectedExpedition.origin_station : selectedExpedition?.origin_station?.name) ||
+      (typeof selectedExpedition?.originStation === "string" ? selectedExpedition.originStation : selectedExpedition?.originStation?.name) ||
+      (originId ? resolveStation(originId) : null);
+
+    const matchedStation = liveStations.find((s) => {
+      if (originId && s.id === originId) return true;
+      if (originName && isStationMatch(s, originName)) return true;
+      return false;
+    });
+
+    if (matchedStation) {
+      return matchedStation;
+    }
+
+    if (originId || originName) {
+      return {
+        id: originId || originName,
+        name: originName || resolveStation(originId) || originId,
+        code: "",
+      };
+    }
+
+    return null;
+  }, [selectedExpedition, form.origin_station_id, liveStations, resolveStation]);
+
+  // Expedition departure and arrival date limits
+  const {expDepartureDate, expArrivalDate} = useMemo(() => {
+    if (!selectedExpedition) {
+      return {expDepartureDate: "", expArrivalDate: ""};
+    }
+
+    const rawDep =
+      selectedExpedition.departure_date ||
+      selectedExpedition.departure_time ||
+      selectedExpedition.departure ||
+      selectedExpedition.start_date ||
+      selectedExpedition.startDate ||
+      selectedExpedition.planned_departure ||
+      selectedExpedition.planned_departure_at ||
+      selectedExpedition.estimated_departure;
+
+    const rawArr =
+      selectedExpedition.arrival_date ||
+      selectedExpedition.arrival_time ||
+      selectedExpedition.arrival ||
+      selectedExpedition.end_date ||
+      selectedExpedition.endDate ||
+      selectedExpedition.planned_arrival ||
+      selectedExpedition.planned_arrival_at ||
+      selectedExpedition.estimated_arrival;
+
+    return {
+      expDepartureDate: toDateInputValue(rawDep),
+      expArrivalDate: toDateInputValue(rawArr),
+    };
+  }, [selectedExpedition]);
+
+  const set = (key) => (value) => {
+    setForm((f) => {
+      const next = {...f, [key]: value};
+      if (key === "departure_time") {
+        if (expDepartureDate && value && value < expDepartureDate) {
+          next.departure_time = expDepartureDate;
+        } else if (expArrivalDate && value && value > expArrivalDate) {
+          next.departure_time = expArrivalDate;
+        }
+        if (next.departure_time && next.arrival_time && next.arrival_time < next.departure_time) {
+          next.arrival_time = "";
+        }
+      }
+      if (key === "arrival_time") {
+        if (expDepartureDate && value && value < expDepartureDate) {
+          next.arrival_time = expDepartureDate;
+        } else if (expArrivalDate && value && value > expArrivalDate) {
+          next.arrival_time = expArrivalDate;
+        }
+        if (next.arrival_time && next.departure_time && next.arrival_time < next.departure_time) {
+          next.arrival_time = "";
+        }
+      }
+      return next;
+    });
+  };
 
   // Station dropdown options populated from live API data and selected expedition
   const stationOptions = useMemo(() => {
@@ -195,9 +342,11 @@ const Personnel = () => {
     }));
   }, [availableExpeditions]);
 
-  // When an expedition is selected, autofill origin and destination stations
+  // When an expedition is selected, autofill origin and destination stations,
+  // reset personnel to ensure only origin-station personnel are picked,
+  // and set departure/arrival dates within the expedition window.
   const handleExpeditionChange = (expeditionId) => {
-    const selectedExp = availableExpeditions.find((e) => e.id === expeditionId);
+    const selectedExp = availableExpeditions.find((e) => e.id === expeditionId || e.expedition_id === expeditionId);
     if (selectedExp) {
       const originId =
         selectedExp.origin_station_id ||
@@ -211,18 +360,47 @@ const Personnel = () => {
         liveStations.find((s) => s.name === selectedExp.destination_station_name || s.id === selectedExp.destination_station_id)?.id ||
         "";
 
+      const rawDep =
+        selectedExp.departure_date ||
+        selectedExp.departure_time ||
+        selectedExp.departure ||
+        selectedExp.start_date ||
+        selectedExp.startDate ||
+        selectedExp.planned_departure ||
+        selectedExp.planned_departure_at ||
+        selectedExp.estimated_departure;
+
+      const rawArr =
+        selectedExp.arrival_date ||
+        selectedExp.arrival_time ||
+        selectedExp.arrival ||
+        selectedExp.end_date ||
+        selectedExp.endDate ||
+        selectedExp.planned_arrival ||
+        selectedExp.planned_arrival_at ||
+        selectedExp.estimated_arrival;
+
+      const depDate = toDateInputValue(rawDep);
+      const arrDate = toDateInputValue(rawArr);
+
       setForm((prev) => ({
         ...prev,
         expedition_id: expeditionId,
+        personnel_id: "", // Reset to require selecting an eligible person from origin station
         origin_station_id: originId,
         destination_station_id: destId,
+        departure_time: depDate || "",
+        arrival_time: arrDate || "",
       }));
     } else {
       setForm((prev) => ({
         ...prev,
         expedition_id: expeditionId,
+        personnel_id: "",
         origin_station_id: "",
         destination_station_id: "",
+        departure_time: "",
+        arrival_time: "",
       }));
     }
   };
@@ -252,21 +430,69 @@ const Personnel = () => {
     );
   }, [movingPersonnel]);
 
-  // Personnel dropdown options for assignment modal
+  // Personnel dropdown options for assignment modal:
+  // Shows ONLY personnel whose current station matches the selected expedition's origin station
   const personnelDropdownOptions = useMemo(() => {
+    if (!form.expedition_id || !selectedExpeditionOriginStation) {
+      return [];
+    }
+
     const map = new Map();
     (totalPersonnel || []).forEach((p) => {
       const id = p.personnel_id || p.id;
-      if (id) map.set(id, p);
+      if (id) map.set(id, {...p, personnel_id: id});
     });
     (formOptions.personnel || []).forEach((p) => {
       const id = p.personnel_id || p.id;
-      if (id && !map.has(id)) map.set(id, p);
+      if (id) {
+        if (map.has(id)) {
+          map.set(id, {...map.get(id), ...p, personnel_id: id});
+        } else {
+          const matchByName = (totalPersonnel || []).find(
+            (tp) =>
+              String(tp.full_name || tp.name || "").trim().toLowerCase() ===
+              String(p.full_name || p.name || "").trim().toLowerCase()
+          );
+          map.set(id, matchByName ? {...matchByName, ...p, personnel_id: id} : {...p, personnel_id: id});
+        }
+      }
     });
 
     const allList = Array.from(map.values());
 
-    return allList.map((p) => {
+    const eligibleList = allList.filter((p) => {
+      const id = p.personnel_id || p.id;
+      const tp = (totalPersonnel || []).find(
+        (t) =>
+          (t.personnel_id && (t.personnel_id === id || t.id === id)) ||
+          (t.id && (t.id === id || t.personnel_id === id)) ||
+          (p.full_name && String(t.name || t.full_name || "").trim().toLowerCase() === String(p.full_name || p.name || "").trim().toLowerCase())
+      );
+
+      const stationId = p.current_station_id || p.currentStationId || tp?.current_station_id || null;
+      const stationName =
+        p.current_station ||
+        p.current_station_name ||
+        p.currentStation ||
+        p.currentStationName ||
+        tp?.current_station ||
+        tp?.current_station_name ||
+        (stationId ? resolveStation(stationId) : null);
+
+      if (stationId && selectedExpeditionOriginStation.id && String(stationId).trim().toLowerCase() === String(selectedExpeditionOriginStation.id).trim().toLowerCase()) {
+        return true;
+      }
+      if (stationName && isStationMatch(selectedExpeditionOriginStation, stationName)) {
+        return true;
+      }
+      if (stationId && isStationMatch(selectedExpeditionOriginStation, stationId)) {
+        return true;
+      }
+
+      return false;
+    });
+
+    return eligibleList.map((p) => {
       const id = p.personnel_id || p.id;
       const personName = p.full_name || p.name || "Personnel";
       const isBusy = busyPersonIds.has(id) || busyPersonNames.has(personName.toLowerCase());
@@ -285,7 +511,15 @@ const Personnel = () => {
         label: `${personName} (${p.role || p.personnel_code || "Personnel"})${statusTag}`,
       };
     });
-  }, [formOptions.personnel, totalPersonnel, busyPersonIds, busyPersonNames]);
+  }, [
+    form.expedition_id,
+    selectedExpeditionOriginStation,
+    totalPersonnel,
+    formOptions.personnel,
+    resolveStation,
+    busyPersonIds,
+    busyPersonNames,
+  ]);
 
   // Movement status options directly from API formOptions
   const movementStatusOptions = useMemo(() => {
@@ -534,6 +768,29 @@ const Personnel = () => {
     const arrDate = new Date(form.arrival_time.includes("T") ? form.arrival_time : `${form.arrival_time}T00:00:00Z`);
     if (arrDate < depDate) {
       setFormError("Arrival date cannot be before departure date.");
+      return;
+    }
+
+    if (expDepartureDate && form.departure_time < expDepartureDate) {
+      setFormError(`Departure date cannot be before expedition departure date (${expDepartureDate}).`);
+      return;
+    }
+    if (expArrivalDate && form.departure_time > expArrivalDate) {
+      setFormError(`Departure date cannot be after expedition arrival date (${expArrivalDate}).`);
+      return;
+    }
+    if (expDepartureDate && form.arrival_time < expDepartureDate) {
+      setFormError(`Arrival date cannot be before expedition departure date (${expDepartureDate}).`);
+      return;
+    }
+    if (expArrivalDate && form.arrival_time > expArrivalDate) {
+      setFormError(`Arrival date cannot be after expedition arrival date (${expArrivalDate}).`);
+      return;
+    }
+
+    const isPersonnelEligible = personnelDropdownOptions.some((opt) => opt.value === form.personnel_id);
+    if (!isPersonnelEligible) {
+      setFormError(`Selected personnel is not stationed at the origin station (${selectedExpeditionOriginStation?.name || "origin"}).`);
       return;
     }
 
@@ -988,15 +1245,38 @@ const Personnel = () => {
               required
             />
 
-            <FormField
-              label="Personnel to assign"
-              as="select"
-              options={personnelDropdownOptions}
-              value={form.personnel_id}
-              onChange={set("personnel_id")}
-              placeholder="Select personnel..."
-              required
-            />
+            <div>
+              <FormField
+                label="Personnel to assign"
+                as="select"
+                options={personnelDropdownOptions}
+                value={form.personnel_id}
+                onChange={set("personnel_id")}
+                placeholder={
+                  !form.expedition_id
+                    ? "Select expedition first..."
+                    : personnelDropdownOptions.length === 0
+                      ? `No personnel at ${selectedExpeditionOriginStation?.name || "origin station"}`
+                      : "Select personnel..."
+                }
+                disabled={!form.expedition_id || personnelDropdownOptions.length === 0}
+                required
+              />
+              {selectedExpedition && selectedExpeditionOriginStation && (
+                <div className="text-[11px] flex items-center justify-between mt-1 px-1"
+                     style={{color: colors.textMuted}}>
+                  <span>
+                    Staff stationed at:{" "}
+                    <span className="font-semibold" style={{color: colors.ice}}>
+                      {selectedExpeditionOriginStation.name}
+                    </span>
+                  </span>
+                  <span style={{...mono}}>
+                    {personnelDropdownOptions.length} eligible
+                  </span>
+                </div>
+              )}
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField
@@ -1019,23 +1299,37 @@ const Personnel = () => {
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField
-                label="Departure date"
-                type="date"
-                value={form.departure_time}
-                onChange={set("departure_time")}
-                max={form.arrival_time || undefined}
-                required
-              />
-              <FormField
-                label="Arrival date"
-                type="date"
-                value={form.arrival_time}
-                onChange={set("arrival_time")}
-                min={form.departure_time || undefined}
-                required
-              />
+            <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField
+                  label="Departure date"
+                  type="date"
+                  value={form.departure_time}
+                  onChange={set("departure_time")}
+                  min={expDepartureDate || undefined}
+                  max={form.arrival_time || expArrivalDate || undefined}
+                  disabled={!form.expedition_id}
+                  required
+                />
+                <FormField
+                  label="Arrival date"
+                  type="date"
+                  value={form.arrival_time}
+                  onChange={set("arrival_time")}
+                  min={form.departure_time || expDepartureDate || undefined}
+                  max={expArrivalDate || undefined}
+                  disabled={!form.expedition_id}
+                  required
+                />
+              </div>
+              {selectedExpedition && (expDepartureDate || expArrivalDate) && (
+                <div className="text-[11px] flex items-center gap-1.5 mt-1 px-1" style={{color: colors.ice}}>
+                  <Calendar size={12} className="flex-shrink-0"/>
+                  <span>
+                    Expedition window: {expDepartureDate || "Open"} → {expArrivalDate || "Open"}
+                  </span>
+                </div>
+              )}
             </div>
 
             <FormField

@@ -230,6 +230,21 @@ export default function EmergencyDeviceSimulator() {
         battery_percent: batteryPercent ?? 85,
       };
 
+      // Instantly record to global store so dashboard and maps update in 0ms
+      useEmergencyStore.getState().recordTelemetry({
+        deviceId: activeDevId,
+        device_label: deviceLabel || "SIM-BHARTI-01",
+        personnel_id: selectedPersonnelId,
+        latitude: Number(currentLoc.latitude),
+        longitude: Number(currentLoc.longitude),
+        location_accuracy_m: Number(currentLoc.location_accuracy_m || 8),
+        altitude_m: currentLoc.altitude_m,
+        heading_deg: currentLoc.heading_deg,
+        speed_mps: currentLoc.speed_mps,
+        battery_percent: batteryPercent ?? 85,
+        timestamp: payload.occurred_at,
+      });
+
       try {
         await emergencySimulatorApi.sendHeartbeat(activeDevId, payload);
         setLastHeartbeatTime(new Date().toLocaleTimeString());
@@ -244,7 +259,7 @@ export default function EmergencyDeviceSimulator() {
         setSendingHeartbeat(false);
       }
     },
-    [batteryPercent]
+    [batteryPercent, deviceLabel, selectedPersonnelId]
   );
 
   // GPS WatchPosition Handler
@@ -284,6 +299,21 @@ export default function EmergencyDeviceSimulator() {
         setLocationError(null);
         setUplinkState("Uplink active");
 
+        // Broadcast to store immediately
+        useEmergencyStore.getState().recordTelemetry({
+          deviceId: deviceId || "sim-dev-bharti-01",
+          device_label: deviceLabel || "SIM-BHARTI-01",
+          personnel_id: selectedPersonnelId,
+          latitude: newLoc.latitude,
+          longitude: newLoc.longitude,
+          location_accuracy_m: newLoc.location_accuracy_m,
+          altitude_m: newLoc.altitude_m,
+          heading_deg: newLoc.heading_deg,
+          speed_mps: newLoc.speed_mps,
+          battery_percent: batteryPercent ?? 85,
+          timestamp: new Date().toISOString(),
+        });
+
         if (!initialHeartbeatSentRef.current && isUplinkActive && deviceId) {
           initialHeartbeatSentRef.current = true;
           transmitHeartbeat(deviceId, newLoc);
@@ -304,7 +334,7 @@ export default function EmergencyDeviceSimulator() {
         maximumAge: 10000,
       }
     );
-  }, [isDemoGps, isUplinkActive, deviceId, transmitHeartbeat]);
+  }, [isDemoGps, isUplinkActive, deviceId, deviceLabel, selectedPersonnelId, batteryPercent, transmitHeartbeat]);
 
   // Use Demo Bharti Coordinates
   const handleUseDemoCoords = () => {
@@ -319,10 +349,132 @@ export default function EmergencyDeviceSimulator() {
     setUplinkState("Uplink active");
     showToast("Demo Bharti coordinates active.");
 
+    useEmergencyStore.getState().recordTelemetry({
+      deviceId: deviceId || "sim-dev-bharti-01",
+      device_label: deviceLabel || "SIM-BHARTI-01",
+      personnel_id: selectedPersonnelId,
+      latitude: DEMO_BHARTI_COORDS.latitude,
+      longitude: DEMO_BHARTI_COORDS.longitude,
+      location_accuracy_m: DEMO_BHARTI_COORDS.location_accuracy_m,
+      altitude_m: DEMO_BHARTI_COORDS.altitude_m,
+      heading_deg: DEMO_BHARTI_COORDS.heading_deg,
+      speed_mps: DEMO_BHARTI_COORDS.speed_mps,
+      battery_percent: batteryPercent ?? 85,
+      timestamp: new Date().toISOString(),
+    });
+
     if (!initialHeartbeatSentRef.current && isUplinkActive && deviceId) {
       initialHeartbeatSentRef.current = true;
       transmitHeartbeat(deviceId, DEMO_BHARTI_COORDS);
     }
+  };
+
+  // Directional movement nudge
+  const handleNudgeLocation = (dLat, dLng, heading) => {
+    const current = locationRef.current || DEMO_BHARTI_COORDS;
+    const updated = {
+      ...current,
+      latitude: Number((current.latitude + dLat).toFixed(6)),
+      longitude: Number((current.longitude + dLng).toFixed(6)),
+      heading_deg: heading ?? current.heading_deg ?? 90,
+      speed_mps: 1.8,
+    };
+    locationRef.current = updated;
+    setLocation(updated);
+    setIsDemoGps(true);
+    setUplinkState("Uplink active");
+
+    const effectiveId = deviceId || "sim-dev-bharti-01";
+    useEmergencyStore.getState().recordTelemetry({
+      deviceId: effectiveId,
+      device_label: deviceLabel || "SIM-BHARTI-01",
+      personnel_id: selectedPersonnelId,
+      latitude: updated.latitude,
+      longitude: updated.longitude,
+      location_accuracy_m: updated.location_accuracy_m || 6,
+      heading_deg: updated.heading_deg,
+      speed_mps: updated.speed_mps,
+      battery_percent: batteryPercent ?? 85,
+      timestamp: new Date().toISOString(),
+    });
+
+    if (isUplinkActive && deviceId) {
+      transmitHeartbeat(deviceId, updated);
+    }
+    showToast(`Position moved: ${updated.latitude}°, ${updated.longitude}°`);
+  };
+
+  // Automated Patrol Walk simulation state
+  const [isPatrolWalking, setIsPatrolWalking] = useState(false);
+  const patrolIntervalRef = useRef(null);
+
+  const togglePatrolWalk = () => {
+    if (isPatrolWalking) {
+      if (patrolIntervalRef.current) clearInterval(patrolIntervalRef.current);
+      patrolIntervalRef.current = null;
+      setIsPatrolWalking(false);
+      showToast("Patrol walk paused.");
+      return;
+    }
+
+    setIsPatrolWalking(true);
+    setIsDemoGps(true);
+    showToast("Simulating live patrol route (stepping coordinates every 2.5s)...");
+
+    let step = 0;
+    const baseLat = locationRef.current?.latitude || DEMO_BHARTI_COORDS.latitude;
+    const baseLng = locationRef.current?.longitude || DEMO_BHARTI_COORDS.longitude;
+
+    const patrolOffsets = [
+      {dLat: 0.0003, dLng: 0.0004, heading: 45, speed: 1.5},
+      {dLat: 0.0006, dLng: 0.0009, heading: 60, speed: 1.8},
+      {dLat: 0.0008, dLng: 0.0016, heading: 80, speed: 2.1},
+      {dLat: 0.0006, dLng: 0.0022, heading: 110, speed: 1.9},
+      {dLat: 0.0002, dLng: 0.0026, heading: 140, speed: 1.6},
+      {dLat: -0.0003, dLng: 0.0027, heading: 175, speed: 1.7},
+      {dLat: -0.0008, dLng: 0.0023, heading: 210, speed: 2.0},
+      {dLat: -0.0011, dLng: 0.0017, heading: 235, speed: 1.8},
+      {dLat: -0.0012, dLng: 0.0009, heading: 260, speed: 1.9},
+      {dLat: -0.0009, dLng: 0.0002, heading: 300, speed: 1.6},
+      {dLat: -0.0004, dLng: -0.0003, heading: 330, speed: 1.7},
+      {dLat: 0, dLng: 0, heading: 360, speed: 1.4},
+    ];
+
+    patrolIntervalRef.current = setInterval(() => {
+      const offset = patrolOffsets[step % patrolOffsets.length];
+      step++;
+
+      const updated = {
+        ...(locationRef.current || DEMO_BHARTI_COORDS),
+        latitude: Number((baseLat + offset.dLat).toFixed(6)),
+        longitude: Number((baseLng + offset.dLng).toFixed(6)),
+        heading_deg: offset.heading,
+        speed_mps: offset.speed,
+        location_accuracy_m: 5,
+      };
+
+      locationRef.current = updated;
+      setLocation(updated);
+      setUplinkState("Uplink active");
+
+      const effectiveId = deviceId || "sim-dev-bharti-01";
+      useEmergencyStore.getState().recordTelemetry({
+        deviceId: effectiveId,
+        device_label: deviceLabel || "SIM-BHARTI-01",
+        personnel_id: selectedPersonnelId,
+        latitude: updated.latitude,
+        longitude: updated.longitude,
+        location_accuracy_m: updated.location_accuracy_m,
+        heading_deg: updated.heading_deg,
+        speed_mps: updated.speed_mps,
+        battery_percent: batteryPercent ?? 85,
+        timestamp: new Date().toISOString(),
+      });
+
+      if (deviceId) {
+        transmitHeartbeat(deviceId, updated);
+      }
+    }, 2500);
   };
 
   // Switch back to device live GPS
@@ -358,6 +510,11 @@ export default function EmergencyDeviceSimulator() {
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = null;
+    }
+    if (patrolIntervalRef.current) {
+      clearInterval(patrolIntervalRef.current);
+      patrolIntervalRef.current = null;
+      setIsPatrolWalking(false);
     }
     showToast("Satellite uplink stopped.", "error");
   };
@@ -402,6 +559,7 @@ export default function EmergencyDeviceSimulator() {
       if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
       if (sosCountdownRef.current) clearInterval(sosCountdownRef.current);
+      if (patrolIntervalRef.current) clearInterval(patrolIntervalRef.current);
     };
   }, []);
 
@@ -934,6 +1092,83 @@ export default function EmergencyDeviceSimulator() {
                         {sendingHeartbeat && <Loader2 size={11} className="animate-spin text-cyan-400" />}
                       </span>
                     </div>
+                  </div>
+                </div>
+
+                {/* Real-time Movement & Route Tracing Simulator Controls */}
+                <div
+                  className="p-3.5 rounded-md flex flex-col gap-3"
+                  style={{
+                    background: colors.panel,
+                    border: `1px solid ${colors.iceDim || colors.border}`,
+                  }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold" style={{color: colors.ice}}>
+                      <Activity size={14} className="animate-pulse"/>
+                      <span>Live Movement & Route Tracing Simulator</span>
+                    </div>
+                    <span className="text-[10px] font-mono" style={{color: colors.textFaint}}>
+                      Broadcasts live to dashboard & map
+                    </span>
+                  </div>
+
+                  <p className="text-[11px]" style={{color: colors.textMuted}}>
+                    Change coordinates manually or activate automated patrol walk. All coordinate changes trace in
+                    real-time on the map trail and reflect on the dashboard instantly.
+                  </p>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {/* Directional Nudge Buttons */}
+                    <div className="flex items-center gap-1 bg-black/20 p-1 rounded-md border border-slate-700/50">
+                      <button
+                        type="button"
+                        onClick={() => handleNudgeLocation(0.0005, 0, 0)}
+                        className="px-2 py-1 text-xs font-mono font-medium rounded hover:bg-slate-700/60 active:scale-95 transition-all text-slate-200 cursor-pointer"
+                        title="Move North (+0.0005° Lat ~55m)"
+                      >
+                        ⬆ North
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleNudgeLocation(-0.0005, 0, 180)}
+                        className="px-2 py-1 text-xs font-mono font-medium rounded hover:bg-slate-700/60 active:scale-95 transition-all text-slate-200 cursor-pointer"
+                        title="Move South (-0.0005° Lat ~55m)"
+                      >
+                        ⬇ South
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleNudgeLocation(0, -0.001, 270)}
+                        className="px-2 py-1 text-xs font-mono font-medium rounded hover:bg-slate-700/60 active:scale-95 transition-all text-slate-200 cursor-pointer"
+                        title="Move West (-0.0010° Lng ~40m)"
+                      >
+                        ⬅ West
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleNudgeLocation(0, 0.001, 90)}
+                        className="px-2 py-1 text-xs font-mono font-medium rounded hover:bg-slate-700/60 active:scale-95 transition-all text-slate-200 cursor-pointer"
+                        title="Move East (+0.0010° Lng ~40m)"
+                      >
+                        ➡ East
+                      </button>
+                    </div>
+
+                    {/* Patrol Walk Automated Simulation */}
+                    <button
+                      type="button"
+                      onClick={togglePatrolWalk}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-md flex items-center gap-1.5 cursor-pointer transition-all hover:brightness-110 active:scale-95"
+                      style={{
+                        background: isPatrolWalking ? colors.flare : colors.aurora,
+                        color: isPatrolWalking ? "#ffffff" : "#0f172a",
+                      }}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full ${isPatrolWalking ? "bg-white animate-ping" : "bg-emerald-900"}`}/>
+                      <span>{isPatrolWalking ? "Pause Patrol Simulation" : "Simulate Patrol Walk (2.5s trace)"}</span>
+                    </button>
                   </div>
                 </div>
 
