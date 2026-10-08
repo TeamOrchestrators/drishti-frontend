@@ -16,6 +16,8 @@ import {
   QrCode,
   Scan,
   MapPin,
+  GitBranch,
+  Route,
 } from "lucide-react";
 import { colors, mono } from "../../theme";
 import Panel from "../ui/Panel";
@@ -26,6 +28,7 @@ import Modal from "../ui/Modal.jsx";
 import { TableSkeleton, CardSkeleton } from "../ui/Skeleton.jsx";
 import { useCargoStore } from "../../store/useCargoStore.js";
 import { useExpeditionStore } from "../../store/useExpeditionStore.js";
+import {cargoApi} from "../../services/api.js";
 import CargoQrModal from "../cargo/CargoQrModal.jsx";
 import BatchMap from "../cargo/BatchMap.jsx";
 import {
@@ -34,6 +37,12 @@ import {
   batchStatusTone,
 } from "../../utils/cargoUtils.js";
 import {formatDisplayDateTime, toDateTimeLocalValue, toUtcISOString} from "../../utils/dateTime.js";
+import {
+  normalizeShipmentRoutes,
+  shipmentRouteColor,
+  shipmentStatusTone,
+  transportModeOptions,
+} from "../../utils/shipmentUtils.js";
 
 const priorityOptions = [
   { value: "standard", label: "Standard" },
@@ -118,6 +127,24 @@ const emptyBatchForm = {
   notes: "",
 };
 
+const emptyShipmentForm = {
+  shipment_code: "",
+  transport_mode: "air",
+  priority: "critical",
+  status: "planned",
+  planned_dispatch_at: "",
+  estimated_arrival_at: "",
+  notes: "",
+};
+
+const emptySplitForm = {
+  new_cargo_code: "",
+  shipment_id: "",
+  priority: "critical",
+  notes: "",
+  items: [],
+};
+
 const Cargo = () => {
   const {
     cargo,
@@ -132,6 +159,9 @@ const Cargo = () => {
     fetchBatchTracking,
     createCargo,
     createBatch,
+    createShipment,
+    splitCargo,
+    assignShipment,
     assignLogisticsBatch,
     clearError,
   } = useCargoStore();
@@ -150,6 +180,13 @@ const Cargo = () => {
   const [batchFormError, setBatchFormError] = useState(null);
   const [search, setSearch] = useState("");
   const [expandedBatchMapId, setExpandedBatchMapId] = useState(null);
+  const [shipmentModalBatch, setShipmentModalBatch] = useState(null);
+  const [shipmentForm, setShipmentForm] = useState(emptyShipmentForm);
+  const [shipmentFormError, setShipmentFormError] = useState(null);
+  const [splitCargoSource, setSplitCargoSource] = useState(null);
+  const [splitForm, setSplitForm] = useState(emptySplitForm);
+  const [splitFormError, setSplitFormError] = useState(null);
+  const [splitLoading, setSplitLoading] = useState(false);
 
   const openCargoQr = (cargoItem) => {
     setQrModalCargo(cargoItem);
@@ -508,6 +545,176 @@ const Cargo = () => {
     }
   }
 
+  function openCreateShipment(batch) {
+    const tracking =
+      (batch.id && batchTracking[batch.id]) ||
+      (batch.batch_code && batchTracking[batch.batch_code]);
+    const routeNumber = normalizeShipmentRoutes(tracking).length + 1;
+    setShipmentModalBatch(batch);
+    setShipmentForm({
+      ...emptyShipmentForm,
+      shipment_code: `${batch.batch_code || "SHIP"}-${String(routeNumber).padStart(2, "0")}`,
+      planned_dispatch_at: toDateTimeLocalValue(batch.planned_dispatch_at),
+      estimated_arrival_at: toDateTimeLocalValue(batch.estimated_arrival_at),
+    });
+    setShipmentFormError(null);
+  }
+
+  const setShipmentField = (key) => (value) => {
+    setShipmentForm((current) => ({...current, [key]: value}));
+  };
+
+  async function handleShipmentSubmit(event) {
+    event.preventDefault();
+    setShipmentFormError(null);
+    if (!shipmentModalBatch?.id) {
+      setShipmentFormError("The selected batch does not have a valid identifier.");
+      return;
+    }
+    if (!shipmentForm.shipment_code.trim()) {
+      setShipmentFormError("Please enter a shipment code.");
+      return;
+    }
+    if (!shipmentForm.planned_dispatch_at || !shipmentForm.estimated_arrival_at) {
+      setShipmentFormError("Please select dispatch and arrival date-times.");
+      return;
+    }
+    if (shipmentForm.estimated_arrival_at < shipmentForm.planned_dispatch_at) {
+      setShipmentFormError("Shipment arrival cannot be before dispatch.");
+      return;
+    }
+    const parentExpedition = expeditions.find(
+      (expedition) => expedition.id === shipmentModalBatch.expedition_id,
+    );
+    const expeditionStart = toDateTimeLocalValue(
+      parentExpedition?.start_date || parentExpedition?.startDate,
+    );
+    const expeditionEnd = toDateTimeLocalValue(
+      parentExpedition?.end_date || parentExpedition?.endDate,
+    );
+    if (expeditionStart && shipmentForm.planned_dispatch_at < expeditionStart) {
+      setShipmentFormError("Shipment dispatch cannot be before the parent expedition starts.");
+      return;
+    }
+    if (expeditionEnd && shipmentForm.estimated_arrival_at > expeditionEnd) {
+      setShipmentFormError("Shipment arrival cannot be after the parent expedition ends.");
+      return;
+    }
+
+    try {
+      await createShipment(shipmentModalBatch.id, {
+        shipment_code: shipmentForm.shipment_code.trim(),
+        transport_mode: shipmentForm.transport_mode,
+        priority: shipmentForm.priority,
+        status: shipmentForm.status,
+        planned_dispatch_at: toUtcISOString(shipmentForm.planned_dispatch_at),
+        estimated_arrival_at: toUtcISOString(shipmentForm.estimated_arrival_at),
+        notes: shipmentForm.notes.trim(),
+      });
+      setShipmentModalBatch(null);
+      setShipmentForm(emptyShipmentForm);
+    } catch (err) {
+      setShipmentFormError(err.message || "Failed to create shipment route.");
+    }
+  }
+
+  async function handleShipmentAssignment(cargoId, shipmentId) {
+    try {
+      await assignShipment(cargoId, shipmentId || null);
+    } catch {
+      // The store exposes the API error in the page-level error banner.
+    }
+  }
+
+  async function openSplitCargo(cargoItem, routes) {
+    setSplitLoading(true);
+    setSplitFormError(null);
+    try {
+      const detail = await cargoApi.getByQrToken(cargoItem.id || cargoItem.cargo_code);
+      const source = detail && typeof detail === "object" ? {...cargoItem, ...detail} : cargoItem;
+      const availableItems = Array.isArray(source.items) ? source.items : [];
+      const urgentRoute = routes.find(
+        (route) => route.priority === "critical" || route.transport_mode === "air",
+      );
+      setSplitCargoSource({...source, availableRoutes: routes});
+      setSplitForm({
+        ...emptySplitForm,
+        new_cargo_code: `${source.cargo_code || "CARGO"}-URG`,
+        shipment_id: urgentRoute?.id || routes[0]?.id || "",
+        priority: "critical",
+        items: availableItems.map((item) => ({
+          item_id: item.item_id,
+          item_name: item.item_name,
+          unit: item.unit,
+          available_quantity: Number(item.quantity || 0),
+          quantity: "",
+        })),
+      });
+    } catch (err) {
+      setSplitFormError(err.message || "Could not load the cargo manifest.");
+      setSplitCargoSource({...cargoItem, availableRoutes: routes});
+      setSplitForm({...emptySplitForm, new_cargo_code: `${cargoItem.cargo_code || "CARGO"}-URG`});
+    } finally {
+      setSplitLoading(false);
+    }
+  }
+
+  const setSplitField = (key) => (value) => {
+    setSplitForm((current) => ({...current, [key]: value}));
+  };
+
+  function setSplitItemQuantity(itemId, value) {
+    setSplitForm((current) => ({
+      ...current,
+      items: current.items.map((item) =>
+        item.item_id === itemId ? {...item, quantity: value} : item
+      ),
+    }));
+  }
+
+  async function handleSplitSubmit(event) {
+    event.preventDefault();
+    setSplitFormError(null);
+    if (!splitCargoSource?.id) {
+      setSplitFormError("The source cargo does not have a valid identifier.");
+      return;
+    }
+    if (!splitForm.shipment_id) {
+      setSplitFormError("Select the shipment route that will carry the split cargo.");
+      return;
+    }
+    const allocations = splitForm.items
+      .map((item) => ({...item, quantity: Number(item.quantity)}))
+      .filter((item) => Number.isFinite(item.quantity) && item.quantity > 0);
+    if (allocations.length === 0) {
+      setSplitFormError("Enter a positive quantity for at least one manifest item.");
+      return;
+    }
+    const invalidAllocation = allocations.find(
+      (item) => item.quantity > item.available_quantity,
+    );
+    if (invalidAllocation) {
+      setSplitFormError(
+        `${invalidAllocation.item_name || "Item"} exceeds the available quantity of ${invalidAllocation.available_quantity}.`,
+      );
+      return;
+    }
+
+    try {
+      await splitCargo(splitCargoSource.id, {
+        new_cargo_code: splitForm.new_cargo_code.trim(),
+        shipment_id: splitForm.shipment_id,
+        priority: splitForm.priority,
+        notes: splitForm.notes.trim(),
+        items: allocations.map(({item_id, quantity}) => ({item_id, quantity})),
+      });
+      setSplitCargoSource(null);
+      setSplitForm(emptySplitForm);
+    } catch (err) {
+      setSplitFormError(err.message || "Failed to split cargo manifest.");
+    }
+  }
+
   // Station dropdown options populated with fallback for linked expedition stations
   const stationOptions = useMemo(() => {
     const opts = stations.map((s) => ({
@@ -571,6 +778,15 @@ const Cargo = () => {
     .filter(Boolean)
     .sort()
     .at(-1);
+  const selectedExpeditionForShipment = expeditions.find(
+    (expedition) => expedition.id === shipmentModalBatch?.expedition_id,
+  );
+  const shipmentWindowStart = toDateTimeLocalValue(
+    selectedExpeditionForShipment?.start_date || selectedExpeditionForShipment?.startDate,
+  );
+  const shipmentWindowEnd = toDateTimeLocalValue(
+    selectedExpeditionForShipment?.end_date || selectedExpeditionForShipment?.endDate,
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -705,8 +921,13 @@ const Cargo = () => {
                   Array.isArray(tracking?.checkpoints) ?
                     tracking.checkpoints
                     : [];
-                const hasCheckpoints = checkpoints.length > 0;
-                const hasPropagated = checkpoints.some(
+                const shipments = normalizeShipmentRoutes(tracking);
+                const shipmentCheckpointCount = shipments.reduce(
+                  (total, shipment) => total + shipment.checkpoints.length,
+                  0,
+                );
+                const hasCheckpoints = checkpoints.length > 0 || shipmentCheckpointCount > 0;
+                const hasPropagated = [...checkpoints, ...shipments.flatMap((shipment) => shipment.checkpoints)].some(
                   (cp) => Number(cp.affected_cargo_count) > 1,
                 );
 
@@ -791,6 +1012,20 @@ const Cargo = () => {
 
                       {/* Actions: Cargo count badge & Batch Map button */}
                       <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => openCreateShipment(b)}
+                          className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded cursor-pointer transition-opacity hover:opacity-85"
+                          style={{
+                            background: colors.panelAlt,
+                            color: colors.aurora,
+                            border: `1px solid ${colors.borderSoft}`,
+                          }}
+                          title="Add an independently tracked shipment route"
+                        >
+                          <Route size={12}/>
+                          <span className="hidden sm:inline">Add route</span>
+                        </button>
                         {hasCheckpoints ?
                           <button
                             type="button"
@@ -936,6 +1171,49 @@ const Cargo = () => {
                       </div>
                     )}
 
+                    {shipments.length > 0 && (
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-semibold uppercase tracking-wide" style={{color: colors.textFaint}}>
+                            Independent shipment routes
+                          </span>
+                          <span style={{...mono, color: colors.textMuted}}>{shipments.length}</span>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2">
+                          {shipments.map((shipment, shipmentIndex) => {
+                            const routeColor = shipmentRouteColor(shipment, shipmentIndex);
+                            return (
+                              <div
+                                key={shipment.id}
+                                className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg"
+                                style={{background: colors.panelAlt, border: `1px solid ${colors.borderSoft}`}}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{background: routeColor}} />
+                                  <div className="min-w-0">
+                                    <div className="text-xs font-semibold truncate" style={{color: colors.text, ...mono}}>
+                                      {shipment.shipment_code}
+                                    </div>
+                                    <div className="text-[10px] capitalize truncate" style={{color: colors.textMuted}}>
+                                      {String(shipment.transport_mode || "route").replace(/_/g, " ")} · {shipment.priority || "standard"} priority
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <span className="text-[10px]" style={{color: colors.textMuted, ...mono}}>
+                                    {shipment.cargo_count ?? 0} cargo · {shipment.total_quantity ?? "—"} units
+                                  </span>
+                                  <Pill tone={shipmentStatusTone(shipment.status)}>
+                                    {formatStatus(shipment.status || "planned")}
+                                  </Pill>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {/* For batches with no GPS data, show compact inline empty state */}
                     {!hasCheckpoints && (
                       <div
@@ -961,6 +1239,7 @@ const Cargo = () => {
                         <BatchMap
                           batch={b}
                           checkpoints={checkpoints}
+                          shipments={shipments}
                           cargoList={assignedCargoList}
                           stations={stations}
                           height="260px"
@@ -1015,7 +1294,14 @@ const Cargo = () => {
                         className="flex flex-wrap gap-1.5 pt-2"
                         style={{borderTop: `1px solid ${colors.borderSoft}`}}
                       >
-                        {assignedCargoList.map((c) => (
+                        {assignedCargoList.map((c) => {
+                          const shipment = shipments.find(
+                            (route) =>
+                              route.id === c.logistics_shipment_id ||
+                              route.shipment_code === c.logistics_shipment_code,
+                          );
+                          const shipmentIndex = shipment ? shipments.indexOf(shipment) : -1;
+                          return (
                           <span
                             key={c.id}
                             className="text-[11px] px-2 py-0.5 rounded flex items-center gap-1"
@@ -1037,13 +1323,22 @@ const Cargo = () => {
                               ({formatStatus(c.status)})
                             </span>
                             )}
+                            {shipment && (
+                              <span
+                                className="text-[10px] font-semibold"
+                                style={{color: shipmentRouteColor(shipment, shipmentIndex)}}
+                              >
+                                · {shipment.shipment_code}
+                              </span>
+                            )}
                             {c.notes && (
                               <span className="max-w-[120px] truncate">
                               · {c.notes}
                             </span>
                             )}
-                        </span>
-                        ))}
+                          </span>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -1140,6 +1435,17 @@ const Cargo = () => {
                     c.logistics_batch_id ||
                     c.batch_id ||
                     "";
+                  const assignedTracking = assignedBatch
+                    ? (assignedBatch.id && batchTracking[assignedBatch.id]) ||
+                      (assignedBatch.batch_code && batchTracking[assignedBatch.batch_code])
+                    : null;
+                  const availableShipments = normalizeShipmentRoutes(assignedTracking);
+                  const currentShipmentId =
+                    c.logistics_shipment_id ||
+                    availableShipments.find(
+                      (shipment) => shipment.shipment_code === c.logistics_shipment_code,
+                    )?.id ||
+                    "";
                     const isAssigningThisRow = assigningCargoId === c.id;
 
                     return (
@@ -1209,7 +1515,8 @@ const Cargo = () => {
 
                         {/* Dispatch Batch Dropdown */}
                         <td className="py-3.5 px-4 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-col gap-1.5 min-w-[245px]">
+                            <div className="flex items-center gap-2">
                             <select
                               value={currentBatchId}
                               disabled={isAssigningThisRow}
@@ -1242,6 +1549,28 @@ const Cargo = () => {
                                 style={{ color: colors.ice }}
                               />
                             )}
+                            </div>
+                            {availableShipments.length > 0 && (
+                              <select
+                                value={currentShipmentId}
+                                disabled={isAssigningThisRow}
+                                onChange={(event) => handleShipmentAssignment(c.id, event.target.value)}
+                                className="text-[11px] rounded px-2.5 py-1.5 outline-none max-w-[320px] truncate cursor-pointer"
+                                style={{
+                                  background: colors.panelAlt,
+                                  color: currentShipmentId ? colors.text : colors.textFaint,
+                                  border: `1px solid ${colors.borderSoft}`,
+                                }}
+                                title="Assign this cargo to an independently tracked shipment route"
+                              >
+                                <option value="">No child shipment</option>
+                                {availableShipments.map((shipment) => (
+                                  <option key={shipment.id} value={shipment.id}>
+                                    {shipment.shipment_code} · {shipment.transport_mode || "route"} · {shipment.priority || "standard"}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                           </div>
                         </td>
 
@@ -1263,20 +1592,38 @@ const Cargo = () => {
 
                         {/* QR Action */}
                         <td className="py-3.5 px-4 pr-2 whitespace-nowrap text-right">
-                          <button
-                            type="button"
-                            onClick={() => openCargoQr(c)}
-                            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded cursor-pointer transition-opacity hover:opacity-80 font-medium"
-                            style={{
-                              background: colors.panelAlt,
-                              color: colors.ice,
-                              border: `1px solid ${colors.borderSoft}`,
-                            }}
-                            title={`View & print QR label for ${c.cargo_code || c.id}`}
-                          >
-                            <QrCode size={13}/>
-                            <span>QR</span>
-                          </button>
+                          <div className="inline-flex items-center gap-1.5">
+                            {availableShipments.length > 0 && !["received", "cancelled"].includes(c.status) && (
+                              <button
+                                type="button"
+                                onClick={() => openSplitCargo(c, availableShipments)}
+                                className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded cursor-pointer transition-opacity hover:opacity-80 font-medium"
+                                style={{
+                                  background: colors.amberBg,
+                                  color: colors.amber,
+                                  border: `1px solid ${colors.amberDim}`,
+                                }}
+                                title={`Split part of ${c.cargo_code || c.id} onto another route`}
+                              >
+                                <GitBranch size={13}/>
+                                <span>Split</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => openCargoQr(c)}
+                              className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded cursor-pointer transition-opacity hover:opacity-80 font-medium"
+                              style={{
+                                background: colors.panelAlt,
+                                color: colors.ice,
+                                border: `1px solid ${colors.borderSoft}`,
+                              }}
+                              title={`View & print QR label for ${c.cargo_code || c.id}`}
+                            >
+                              <QrCode size={13}/>
+                              <span>QR</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1590,6 +1937,178 @@ const Cargo = () => {
               >
                 {submitting && <Loader2 size={14} className="animate-spin" />}
                 <span>Create batch</span>
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {shipmentModalBatch && (
+        <Modal
+          title={`Add shipment route · ${shipmentModalBatch.batch_code}`}
+          onClose={() => setShipmentModalBatch(null)}
+          width={620}
+        >
+          <form onSubmit={handleShipmentSubmit} className="flex flex-col gap-4">
+            {shipmentFormError && (
+              <div className="flex items-center gap-2 p-3 rounded text-xs" style={{background: colors.flareBg, color: colors.flare, border: `1px solid ${colors.flareDim}`}}>
+                <AlertCircle size={14}/><span>{shipmentFormError}</span>
+              </div>
+            )}
+            <div className="text-xs p-3 rounded" style={{background: colors.iceBg, color: colors.textMuted, border: `1px solid ${colors.iceDim}`}}>
+              This creates an independently tracked route inside the parent batch. Airlift and planned cargo will keep separate checkpoints, ETAs, and map lines.
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField
+                label="Shipment code"
+                value={shipmentForm.shipment_code}
+                onChange={setShipmentField("shipment_code")}
+                required
+              />
+              <FormField
+                label="Transport mode"
+                as="select"
+                options={transportModeOptions}
+                value={shipmentForm.transport_mode}
+                onChange={setShipmentField("transport_mode")}
+                required
+              />
+              <FormField
+                label="Priority"
+                as="select"
+                options={priorityOptions}
+                value={shipmentForm.priority}
+                onChange={setShipmentField("priority")}
+                required
+              />
+              <FormField
+                label="Initial status"
+                as="select"
+                options={batchStatusOptions}
+                value={shipmentForm.status}
+                onChange={setShipmentField("status")}
+                required
+              />
+              <FormField
+                label="Dispatch date and time"
+                type="datetime-local"
+                value={shipmentForm.planned_dispatch_at}
+                onChange={setShipmentField("planned_dispatch_at")}
+                min={shipmentWindowStart || undefined}
+                max={shipmentForm.estimated_arrival_at || shipmentWindowEnd || undefined}
+                required
+              />
+              <FormField
+                label="Estimated arrival date and time"
+                type="datetime-local"
+                value={shipmentForm.estimated_arrival_at}
+                onChange={setShipmentField("estimated_arrival_at")}
+                min={shipmentForm.planned_dispatch_at || shipmentWindowStart || undefined}
+                max={shipmentWindowEnd || undefined}
+                required
+              />
+            </div>
+            <FormField
+              label="Route notes"
+              as="textarea"
+              value={shipmentForm.notes}
+              onChange={setShipmentField("notes")}
+              placeholder="e.g. Urgent medical crates airlifted ahead of the surface convoy"
+            />
+            <div className="flex justify-end gap-3 pt-2">
+              <button type="button" onClick={() => setShipmentModalBatch(null)} className="text-sm px-4 py-2 rounded cursor-pointer" style={{color: colors.textMuted, border: `1px solid ${colors.border}`}}>Cancel</button>
+              <button type="submit" disabled={submitting} className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded cursor-pointer" style={{color: colors.iceButtonText, background: colors.ice, opacity: submitting ? 0.7 : 1}}>
+                {submitting && <Loader2 size={14} className="animate-spin"/>}
+                Create shipment route
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {splitCargoSource && (
+        <Modal
+          title={`Split cargo manifest · ${splitCargoSource.cargo_code || splitCargoSource.id}`}
+          onClose={() => setSplitCargoSource(null)}
+          width={680}
+        >
+          <form onSubmit={handleSplitSubmit} className="flex flex-col gap-4">
+            {splitFormError && (
+              <div className="flex items-center gap-2 p-3 rounded text-xs" style={{background: colors.flareBg, color: colors.flare, border: `1px solid ${colors.flareDim}`}}>
+                <AlertCircle size={14}/><span>{splitFormError}</span>
+              </div>
+            )}
+            <div className="text-xs p-3 rounded" style={{background: colors.amberBg, color: colors.textMuted, border: `1px solid ${colors.amberDim}`}}>
+              The selected quantities will move into a new QR-tracked cargo manifest. The remaining quantities stay on the original route.
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField
+                label="New cargo code"
+                value={splitForm.new_cargo_code}
+                onChange={setSplitField("new_cargo_code")}
+                required
+              />
+              <FormField
+                label="Destination shipment route"
+                as="select"
+                options={(splitCargoSource.availableRoutes || []).map((route) => ({
+                  value: route.id,
+                  label: `${route.shipment_code} · ${route.transport_mode || "route"} · ${route.priority || "standard"}`,
+                }))}
+                value={splitForm.shipment_id}
+                onChange={setSplitField("shipment_id")}
+                placeholder="Select route..."
+                required
+              />
+              <FormField
+                label="Priority"
+                as="select"
+                options={priorityOptions}
+                value={splitForm.priority}
+                onChange={setSplitField("priority")}
+                required
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <div className="text-xs font-semibold" style={{color: colors.text}}>Quantities to move</div>
+              {splitLoading ? (
+                <div className="flex items-center gap-2 text-xs p-4" style={{color: colors.textMuted}}><Loader2 size={14} className="animate-spin"/> Loading manifest...</div>
+              ) : splitForm.items.length === 0 ? (
+                <div className="text-xs p-3 rounded" style={{color: colors.textMuted, border: `1px dashed ${colors.borderSoft}`}}>
+                  This cargo has no item quantities available to split.
+                </div>
+              ) : splitForm.items.map((item) => (
+                <div key={item.item_id} className="grid grid-cols-[1fr_140px] gap-3 items-center px-3 py-2 rounded" style={{background: colors.panelAlt, border: `1px solid ${colors.borderSoft}`}}>
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium truncate" style={{color: colors.text}}>{item.item_name || item.item_id}</div>
+                    <div className="text-[10px]" style={{color: colors.textMuted}}>Available: {item.available_quantity} {item.unit || "units"}</div>
+                  </div>
+                  <FormField
+                    label="Move quantity"
+                    type="number"
+                    min="0"
+                    max={item.available_quantity}
+                    step="any"
+                    value={item.quantity}
+                    onChange={(value) => setSplitItemQuantity(item.item_id, value)}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <FormField
+              label="Split notes"
+              as="textarea"
+              value={splitForm.notes}
+              onChange={setSplitField("notes")}
+              placeholder="Reason for the urgent partial shipment..."
+            />
+            <div className="flex justify-end gap-3 pt-2">
+              <button type="button" onClick={() => setSplitCargoSource(null)} className="text-sm px-4 py-2 rounded cursor-pointer" style={{color: colors.textMuted, border: `1px solid ${colors.border}`}}>Cancel</button>
+              <button type="submit" disabled={submitting || splitLoading || splitForm.items.length === 0} className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded cursor-pointer" style={{color: colors.iceButtonText, background: colors.ice, opacity: submitting || splitLoading ? 0.7 : 1}}>
+                {submitting && <Loader2 size={14} className="animate-spin"/>}
+                Create split cargo
               </button>
             </div>
           </form>

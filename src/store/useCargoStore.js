@@ -157,6 +157,46 @@ export const useCargoStore = create((set, get) => ({
     }
   },
 
+  createShipment: async (batchId, payload) => {
+    set({submitting: true, error: null});
+    try {
+      const created = await cargoApi.createShipment(batchId, payload);
+      await get().fetchCargo();
+      await get().fetchBatchTracking(batchId);
+      set({submitting: false});
+      return created;
+    } catch (err) {
+      set({submitting: false, error: err.message || "Failed to create shipment route"});
+      throw err;
+    }
+  },
+
+  splitCargo: async (cargoId, payload) => {
+    set({submitting: true, error: null});
+    try {
+      const created = await cargoApi.splitCargo(cargoId, payload);
+      await get().fetchCargo();
+      set({submitting: false});
+      return created;
+    } catch (err) {
+      set({submitting: false, error: err.message || "Failed to split cargo manifest"});
+      throw err;
+    }
+  },
+
+  assignShipment: async (cargoId, shipmentId) => {
+    set({assigningCargoId: cargoId, error: null});
+    try {
+      const result = await cargoApi.assignShipment(cargoId, shipmentId);
+      await get().fetchCargo();
+      set({assigningCargoId: null});
+      return result;
+    } catch (err) {
+      set({assigningCargoId: null, error: err.message || "Failed to assign shipment route"});
+      throw err;
+    }
+  },
+
   assignLogisticsBatch: async (cargoId, batchId) => {
     set({ assigningCargoId: cargoId, error: null });
     try {

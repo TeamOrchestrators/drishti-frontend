@@ -3,8 +3,13 @@ import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import {AlertCircle, RefreshCw, MapPin, Navigation, ArrowRight} from "lucide-react";
-import {colors} from "../../theme.js";
+import {colors, mono} from "../../theme.js";
 import {resolveStationCoords, isValidCoordinate, formatCoordinates} from "../../utils/geo.js";
+import {
+  shipmentMarkerPrefix,
+  shipmentRouteColor,
+  shipmentRouteLabel,
+} from "../../utils/shipmentUtils.js";
 
 // Configure Web Worker for Vite bundler
 if (typeof window !== "undefined" && maplibregl.setWorkerUrl && maplibreWorkerUrl) {
@@ -27,11 +32,21 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
+function routeLayerIds(routeId) {
+  const safeId = String(routeId).replace(/[^a-zA-Z0-9_-]/g, "-");
+  return {
+    source: `batch-route-${safeId}`,
+    glow: `batch-route-glow-${safeId}`,
+    core: `batch-route-core-${safeId}`,
+  };
+}
+
 export default function BatchMap({
                                    batch,
                                    cargo,
                                    cargoList = [],
                                    checkpoints = [],
+                                   shipments = [],
                                    stations = [],
                                    height = "320px",
                                    title,
@@ -44,6 +59,8 @@ export default function BatchMap({
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [retryCount, setRetryCount] = useState(0);
+  const [hiddenRouteIds, setHiddenRouteIds] = useState(() => new Set());
+  const hiddenRouteIdsRef = useRef(hiddenRouteIds);
 
   // Extract Route Metadata
   const originName = batch?.origin_station_name || cargo?.origin_station_name || "";
@@ -130,7 +147,95 @@ export default function BatchMap({
       .map((waypoint, index) => ({...waypoint, sequence: index + 1}));
   }, [checkpoints, batch?.checkpoints, batch?.batch_code, cargo, cargoList]);
 
-  const hasRealCheckpoints = waypoints.length > 0;
+  const routes = useMemo(() => {
+    if (Array.isArray(shipments) && shipments.length > 0) {
+      return shipments.map((shipment, routeIndex) => {
+        const shipmentCheckpoints = (Array.isArray(shipment.checkpoints) ? shipment.checkpoints : [])
+          .map((checkpoint, sourceOrder) => ({
+            ...checkpoint,
+            lat: Number(checkpoint.latitude),
+            lng: Number(checkpoint.longitude),
+            sourceOrder,
+          }))
+          .filter((checkpoint) => isValidCoordinate(checkpoint.lat, checkpoint.lng))
+          .sort((left, right) => {
+            const leftTime = Date.parse(left.scanned_at);
+            const rightTime = Date.parse(right.scanned_at);
+            if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime) && leftTime !== rightTime) {
+              return leftTime - rightTime;
+            }
+            return left.sourceOrder - right.sourceOrder;
+          })
+          .map((checkpoint, index) => ({
+            ...checkpoint,
+            cargoCode: checkpoint.cargo_code || shipment.shipment_code || "SHIPMENT",
+            eventType: checkpoint.event_type || "checkpoint",
+            timestamp: checkpoint.scanned_at,
+            personnelName: checkpoint.personnel_name || checkpoint.scanned_by_personnel_name,
+            sequence: index + 1,
+          }));
+
+        return {
+          ...shipment,
+          id: shipment.id || shipment.shipment_id || shipment.shipment_code || `shipment-${routeIndex + 1}`,
+          label: shipmentRouteLabel(shipment),
+          color: shipmentRouteColor(shipment, routeIndex),
+          markerPrefix: shipmentMarkerPrefix(shipment, routeIndex),
+          originCoords: resolveStationCoords(
+            shipment.origin_station_name || originName,
+            stations,
+          ) || originCoords,
+          destCoords: resolveStationCoords(
+            shipment.destination_station_name || destName,
+            stations,
+          ) || destCoords,
+          waypoints: shipmentCheckpoints,
+        };
+      });
+    }
+
+    return [{
+      id: batchCode || "batch-route",
+      label: batchCode || "Batch route",
+      color: "#0284C7",
+      markerPrefix: "",
+      originCoords,
+      destCoords,
+      waypoints,
+      status: batch?.status,
+      transport_mode: "planned",
+    }];
+  }, [shipments, originName, destName, stations, originCoords, destCoords, batchCode, waypoints, batch?.status]);
+
+  const checkpointCount = routes.reduce((total, route) => total + route.waypoints.length, 0);
+  const hasRealCheckpoints = checkpointCount > 0;
+
+  const toggleRouteVisibility = useCallback((routeId) => {
+    setHiddenRouteIds((current) => {
+      const next = new Set(current);
+      if (next.has(routeId)) next.delete(routeId);
+      else next.add(routeId);
+      hiddenRouteIdsRef.current = next;
+
+      const visible = !next.has(routeId);
+      const map = mapInstanceRef.current;
+      if (map && !map._removed) {
+        const layerIds = routeLayerIds(routeId);
+        [layerIds.glow, layerIds.core].forEach((layerId) => {
+          if (map.getLayer(layerId)) {
+            map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
+          }
+        });
+      }
+      markersRef.current.forEach((marker) => {
+        const element = marker.getElement();
+        if (element?.dataset?.routeId === String(routeId)) {
+          element.style.display = visible ? "flex" : "none";
+        }
+      });
+      return next;
+    });
+  }, []);
 
   const handleRetry = useCallback(() => {
     setHasError(false);
@@ -154,7 +259,9 @@ export default function BatchMap({
       let center = [76.187, -69.408]; // Default: Bharti Station
       if (originCoords) center = [originCoords.lng, originCoords.lat];
       else if (destCoords) center = [destCoords.lng, destCoords.lat];
-      else if (waypoints.length > 0) center = [waypoints[0].lng, waypoints[0].lat];
+      else if (routes[0]?.waypoints.length > 0) {
+        center = [routes[0].waypoints[0].lng, routes[0].waypoints[0].lat];
+      }
 
       map = new maplibregl.Map({
         container: mapContainerRef.current,
@@ -176,54 +283,66 @@ export default function BatchMap({
       map.on("load", () => {
         setMapLoaded(true);
 
-        // Gather all coordinate points for route polyline
-        const routePoints = [];
-        if (originCoords) routePoints.push([originCoords.lng, originCoords.lat]);
-        waypoints.forEach((w) => routePoints.push([w.lng, w.lat]));
-        if (destCoords) routePoints.push([destCoords.lng, destCoords.lat]);
+        const allRoutePoints = [];
 
-        // Draw Route LineString if at least 2 points
-        if (routePoints.length >= 2) {
+        // Each child shipment is its own source and line. Routes intentionally
+        // remain separate so the end of an airlift is never connected to the
+        // beginning of the planned surface shipment.
+        routes.forEach((route) => {
+          const routePoints = [];
+          if (route.originCoords) {
+            routePoints.push([route.originCoords.lng, route.originCoords.lat]);
+          }
+          route.waypoints.forEach((waypoint) => {
+            routePoints.push([waypoint.lng, waypoint.lat]);
+          });
+          if (route.destCoords) {
+            routePoints.push([route.destCoords.lng, route.destCoords.lat]);
+          }
+          allRoutePoints.push(...routePoints);
+
+          if (routePoints.length < 2) return;
           try {
-            map.addSource("batch-route-line", {
+            const ids = routeLayerIds(route.id);
+            const visibility = hiddenRouteIdsRef.current.has(route.id) ? "none" : "visible";
+            map.addSource(ids.source, {
               type: "geojson",
               data: {
                 type: "Feature",
-                geometry: {
-                  type: "LineString",
-                  coordinates: routePoints,
-                },
+                geometry: {type: "LineString", coordinates: routePoints},
                 properties: {},
               },
             });
-
-            // Outer glow line
             map.addLayer({
-              id: "batch-route-glow",
+              id: ids.glow,
               type: "line",
-              source: "batch-route-line",
+              source: ids.source,
+              layout: {visibility},
               paint: {
-                "line-color": "#63C4D6",
-                "line-width": 6,
-                "line-opacity": 0.25,
+                "line-color": route.color,
+                "line-width": 7,
+                "line-opacity": 0.2,
               },
             });
-
-            // Core dashed transit line
-            map.addLayer({
-              id: "batch-route-core",
+            const coreLayer = {
+              id: ids.core,
               type: "line",
-              source: "batch-route-line",
+              source: ids.source,
+              layout: {visibility},
               paint: {
-                "line-color": "#0284C7",
-                "line-width": 3,
-                "line-dasharray": [2, 1.5],
+                "line-color": route.color,
+                "line-width": String(route.transport_mode || "").toLowerCase() === "air" ? 4 : 3,
+                "line-opacity": 0.95,
               },
-            });
+            };
+            if (String(route.transport_mode || "").toLowerCase() !== "air") {
+              coreLayer.paint["line-dasharray"] = [2, 1.5];
+            }
+            map.addLayer(coreLayer);
           } catch (lineErr) {
-            console.warn("Could not add route line to map:", lineErr);
+            console.warn(`Could not add route line ${route.label}:`, lineErr);
           }
-        }
+        });
 
         // Add Origin Marker Pin
         if (originCoords) {
@@ -271,49 +390,42 @@ export default function BatchMap({
           markersRef.current.push(marker);
         }
 
-        // Add Intermediate GPS Checkpoint Pins
-        waypoints.forEach((wp) => {
-          const el = document.createElement("div");
-          el.className = "batch-map-pin waypoint-pin";
-          el.innerHTML = `
-            <div style="background: #D97706; color: #ffffff; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 10px; border: 2px solid #ffffff; box-shadow: 0 3px 8px rgba(0,0,0,0.3);">
-              ${wp.sequence || "CP"}
+        // Add independently numbered checkpoint pins for every shipment route.
+        routes.forEach((route) => route.waypoints.forEach((waypoint) => {
+          const element = document.createElement("div");
+          element.className = "batch-map-pin waypoint-pin";
+          element.dataset.routeId = String(route.id);
+          element.style.display = hiddenRouteIdsRef.current.has(route.id) ? "none" : "flex";
+          element.innerHTML = `
+            <div style="background: ${route.color}; color: #ffffff; min-width: 24px; height: 24px; padding: 0 4px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 9px; border: 2px solid #ffffff; box-shadow: 0 3px 8px rgba(0,0,0,0.3);">
+              ${escapeHtml(`${route.markerPrefix}${waypoint.sequence || ""}`)}
             </div>
           `;
 
-          const popupHtml = `
-            <div style="font-family: sans-serif; font-size: 12px; color: #0F172A; min-width: 170px;">
+          const popup = new maplibregl.Popup({offset: [0, -12], closeButton: true}).setHTML(`
+            <div style="font-family: sans-serif; font-size: 12px; color: #0F172A; min-width: 190px;">
+              <div style="font-weight: 700; color: ${route.color}; margin-bottom: 4px;">${escapeHtml(route.label)}</div>
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-bottom: 3px;">
-                <span style="background: #FEF3C7; color: #B45309; font-weight: 600; font-size: 10px; padding: 1px 6px; border-radius: 4px; text-transform: uppercase;">
-                  ${escapeHtml(wp.eventType)}
-                </span>
-                <span style="font-family: monospace; font-size: 11px; font-weight: 600; color: #0284C7;">
-                  ${escapeHtml(wp.cargoCode)}
-                </span>
+                <span style="background: #F1F5F9; color: #334155; font-weight: 600; font-size: 10px; padding: 1px 6px; border-radius: 4px; text-transform: uppercase;">${escapeHtml(waypoint.eventType)}</span>
+                <span style="font-family: monospace; font-size: 11px; font-weight: 600; color: ${route.color};">${escapeHtml(waypoint.cargoCode)}</span>
               </div>
-              <div style="font-size: 11px; color: #64748B; margin-bottom: 2px;">
-                ${wp.timestamp ? new Date(wp.timestamp).toLocaleString() : ""}
-              </div>
-              <div style="font-family: monospace; font-size: 11px; color: #334155; margin-bottom: 4px;">
-                ${formatCoordinates(wp.lat, wp.lng) || ""}
-              </div>
-              ${wp.personnelName ? `<div style="font-size: 11px; color: #475569;">Operator: <strong>${escapeHtml(wp.personnelName)}</strong></div>` : ""}
-              ${wp.notes ? `<div style="font-size: 11px; color: #1E293B; margin-top: 3px; font-style: italic; background: #F8FAFC; padding: 4px 6px; border-radius: 4px; border: 1px solid #E2E8F0;">"${escapeHtml(wp.notes)}"</div>` : ""}
+              <div style="font-size: 11px; color: #64748B; margin-bottom: 2px;">${waypoint.timestamp ? new Date(waypoint.timestamp).toLocaleString() : ""}</div>
+              <div style="font-family: monospace; font-size: 11px; color: #334155; margin-bottom: 4px;">${formatCoordinates(waypoint.lat, waypoint.lng) || ""}</div>
+              ${waypoint.personnelName ? `<div style="font-size: 11px; color: #475569;">Operator: <strong>${escapeHtml(waypoint.personnelName)}</strong></div>` : ""}
+              ${waypoint.notes ? `<div style="font-size: 11px; color: #1E293B; margin-top: 3px; font-style: italic; background: #F8FAFC; padding: 4px 6px; border-radius: 4px; border: 1px solid #E2E8F0;">"${escapeHtml(waypoint.notes)}"</div>` : ""}
             </div>
-          `;
-
-          const popup = new maplibregl.Popup({offset: [0, -12], closeButton: true}).setHTML(popupHtml);
-          const marker = new maplibregl.Marker({element: el})
-            .setLngLat([wp.lng, wp.lat])
+          `);
+          const marker = new maplibregl.Marker({element})
+            .setLngLat([waypoint.lng, waypoint.lat])
             .setPopup(popup)
             .addTo(map);
           markersRef.current.push(marker);
-        });
+        }));
 
         // Fit map bounds to encompass all points comfortably
-        if (routePoints.length > 0) {
+        if (allRoutePoints.length > 0) {
           const bounds = new maplibregl.LngLatBounds();
-          routePoints.forEach((pt) => bounds.extend(pt));
+          allRoutePoints.forEach((point) => bounds.extend(point));
           map.fitBounds(bounds, {
             padding: {top: 40, bottom: 40, left: 40, right: 40},
             maxZoom: 9,
@@ -346,7 +458,7 @@ export default function BatchMap({
         mapInstanceRef.current = null;
       }
     };
-  }, [retryCount, hasRealCheckpoints, originCoords, destCoords, originName, destName, waypoints]);
+  }, [retryCount, hasRealCheckpoints, originCoords, destCoords, originName, destName, routes]);
 
   if (!hasRealCheckpoints) {
     return (
@@ -395,7 +507,7 @@ export default function BatchMap({
               <span style={{color: colors.text}}>{destName}</span>
             </div>
           )}
-          {waypoints.length > 0 && (
+          {checkpointCount > 0 && (
             <span
               className="text-[11px] px-2 py-0.5 rounded-full font-medium"
               style={{
@@ -404,11 +516,44 @@ export default function BatchMap({
                 border: `1px solid ${colors.amberDim}`,
               }}
             >
-              {waypoints.length} GPS {waypoints.length === 1 ? "checkpoint" : "checkpoints"}
+              {checkpointCount} GPS {checkpointCount === 1 ? "checkpoint" : "checkpoints"}
             </span>
           )}
         </div>
       </div>
+
+      {routes.length > 1 && (
+        <div
+          className="flex items-center gap-2 px-3 py-2 overflow-x-auto"
+          style={{background: colors.panelAlt, borderBottom: `1px solid ${colors.borderSoft}`}}
+        >
+          <span className="text-[10px] uppercase font-semibold flex-shrink-0" style={{color: colors.textFaint}}>
+            Route layers
+          </span>
+          {routes.map((route) => {
+            const hidden = hiddenRouteIds.has(route.id);
+            return (
+              <button
+                key={route.id}
+                type="button"
+                onClick={() => toggleRouteVisibility(route.id)}
+                className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] whitespace-nowrap cursor-pointer transition-opacity"
+                style={{
+                  color: hidden ? colors.textFaint : colors.text,
+                  background: colors.bgRaised,
+                  border: `1px solid ${hidden ? colors.borderSoft : route.color}`,
+                  opacity: hidden ? 0.55 : 1,
+                }}
+                title={`${hidden ? "Show" : "Hide"} ${route.label}`}
+              >
+                <span className="w-2 h-2 rounded-full" style={{background: route.color}} />
+                <span className="font-medium">{route.label}</span>
+                <span style={{...mono, color: colors.textMuted}}>{route.waypoints.length}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Map Container Viewport */}
       <div className="w-full relative" style={{height}}>

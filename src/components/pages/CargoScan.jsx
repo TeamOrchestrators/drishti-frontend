@@ -75,7 +75,7 @@ export default function CargoScan() {
   // Checkpoint Form State
   const [checkpointEvent, setCheckpointEvent] = useState("scanned");
   const [checkpointNotes, setCheckpointNotes] = useState("");
-  const [applyToBatch, setApplyToBatch] = useState(false);
+  const [propagationScope, setPropagationScope] = useState("cargo");
   const [lastScanResult, setLastScanResult] = useState(null);
   const [coords, setCoords] = useState(null); // { latitude, longitude }
   const [manualLatInput, setManualLatInput] = useState("");
@@ -122,7 +122,7 @@ export default function CargoScan() {
     setLookupError(null);
     setCheckpointSuccess(null);
     setCheckpointError(null);
-    setApplyToBatch(false);
+    setPropagationScope("cargo");
     setLastScanResult(null);
 
     try {
@@ -253,7 +253,8 @@ export default function CargoScan() {
           if (scannerRef.current) {
             try {
               scannerRef.current.clear();
-            } catch (_) {
+            } catch {
+              // The scanner may already be cleared after a failed camera candidate.
             }
             scannerRef.current = null;
           }
@@ -316,7 +317,8 @@ export default function CargoScan() {
       const decodedText = await html5Qr.scanFile(file, true);
       try {
         html5Qr.clear();
-      } catch (_) {
+      } catch {
+        // The temporary file scanner may already have released its resources.
       }
       fetchCargoDetails(decodedText);
     } catch (err) {
@@ -484,24 +486,31 @@ export default function CargoScan() {
 
     const hasBatch = Boolean(cargoData?.logistics_batch_id || cargoData?.logistics_batch_code);
 
-    // Exact backend contract:
-    // event_type, latitude, longitude, notes (never message), apply_to_batch
+    const effectiveScope =
+      propagationScope === "shipment" && !cargoData?.logistics_shipment_id
+        ? "cargo"
+        : propagationScope === "batch" && !hasBatch
+          ? "cargo"
+          : propagationScope;
+
     const payload = {
       event_type: checkpointEvent || "scanned",
       latitude: Number(coords.latitude),
       longitude: Number(coords.longitude),
       notes: checkpointNotes ? checkpointNotes.trim() : "",
-      apply_to_batch: Boolean(hasBatch && applyToBatch),
+      scope: effectiveScope,
+      // Keep the legacy flag until every backend deployment understands scope.
+      apply_to_batch: effectiveScope === "batch",
     };
 
     try {
       const scanResponse = await cargoApi.recordScan(targetId, payload);
       setLastScanResult(scanResponse);
 
-      // Success message handling based on batch propagation confirmation:
-      if (scanResponse?.applied_to_batch && Number(scanResponse?.affected_cargo_count) > 1) {
+      const responseScope = scanResponse?.propagation_scope || effectiveScope;
+      if (responseScope !== "cargo" && Number(scanResponse?.affected_cargo_count) > 1) {
         setCheckpointSuccess(
-          `Checkpoint applied to ${scanResponse.affected_cargo_count} cargo items in ${scanResponse.logistics_batch_code || cargoData?.logistics_batch_code || "batch"}.`
+          `Checkpoint applied to ${scanResponse.affected_cargo_count} cargo items in this ${responseScope}.`
         );
       } else {
         const statusNote = scanResponse?.cargo_status
@@ -513,7 +522,7 @@ export default function CargoScan() {
       }
 
       setCheckpointNotes("");
-      setApplyToBatch(false);
+      setPropagationScope("cargo");
 
       // Immediately refetch: GET /api/cargo/qr/{cargoId}
       const freshCargo = await cargoApi.getByQrToken(targetId);
@@ -1164,40 +1173,61 @@ export default function CargoScan() {
                 required
               />
 
-              {/* Batch Propagation Checkbox / Subtle Note */}
-              {cargoData.logistics_batch_id ? (
+              {/* Checkpoint propagation scope */}
+              {(cargoData.logistics_batch_id || cargoData.logistics_shipment_id) ? (
                 <div
                   className="p-3.5 rounded-lg flex flex-col gap-2 transition-colors"
                   style={{
                     background: colors.bgRaised,
-                    border: `1px solid ${applyToBatch ? colors.iceDim : colors.border}`,
+                    border: `1px solid ${propagationScope !== "cargo" ? colors.iceDim : colors.border}`,
                   }}
                 >
-                  <label className="flex items-start gap-3 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      id="apply-checkpoint-to-batch"
-                      checked={applyToBatch}
-                      onChange={(e) => setApplyToBatch(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 rounded accent-cyan-500 cursor-pointer flex-shrink-0"
-                      style={{accentColor: colors.ice}}
-                    />
-                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                      <span className="text-xs font-semibold break-words" style={{color: colors.text}}>
-                        Apply this checkpoint to all cargo in{" "}
-                        <span className="font-mono font-bold" style={{color: colors.ice}}>
-                          {cargoData.logistics_batch_code || "batch"}
+                  <span className="text-xs font-semibold" style={{color: colors.text}}>Apply checkpoint to</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {[
+                      {value: "cargo", label: "This cargo", detail: cargoData.cargo_code || "Cargo only"},
+                      ...(cargoData.logistics_shipment_id ? [{
+                        value: "shipment",
+                        label: "Child shipment",
+                        detail: cargoData.logistics_shipment_code || "Current route",
+                      }] : []),
+                      ...(cargoData.logistics_batch_id ? [{
+                        value: "batch",
+                        label: "Entire batch",
+                        detail: cargoData.logistics_batch_code || "All routes",
+                      }] : []),
+                    ].map((option) => (
+                      <label
+                        key={option.value}
+                        className="flex items-start gap-2 p-2.5 rounded cursor-pointer select-none"
+                        style={{
+                          background: propagationScope === option.value ? colors.panelAlt : "transparent",
+                          border: `1px solid ${propagationScope === option.value ? colors.iceDim : colors.borderSoft}`,
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="checkpoint-scope"
+                          value={option.value}
+                          checked={propagationScope === option.value}
+                          onChange={() => setPropagationScope(option.value)}
+                          className="mt-0.5 h-4 w-4 cursor-pointer flex-shrink-0"
+                          style={{accentColor: colors.ice}}
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-[11px] font-semibold" style={{color: colors.text}}>{option.label}</span>
+                          <span className="block text-[10px] truncate" style={{color: colors.textMuted}}>{option.detail}</span>
                         </span>
-                      </span>
-                      <span className="text-[11px] leading-relaxed" style={{color: colors.textMuted}}>
-                        GPS coordinates, event type, notes, and any status update apply to all eligible cargo in the batch.
-                      </span>
-                    </div>
-                  </label>
+                      </label>
+                    ))}
+                  </div>
+                  <span className="text-[11px] leading-relaxed" style={{color: colors.textMuted}}>
+                    Coordinates, event type, notes, and status updates follow the selected tracking scope.
+                  </span>
                 </div>
               ) : (
                 <div className="text-[11px] px-1 italic" style={{color: colors.textFaint}}>
-                  Not assigned to a logistics batch
+                  This checkpoint applies only to the current cargo.
                 </div>
               )}
 

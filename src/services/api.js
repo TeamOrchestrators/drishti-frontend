@@ -105,6 +105,21 @@ export const cargoApi = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  createShipment: (batchId, data) =>
+    apiRequest(`/api/logistics-batches/${encodeURIComponent(String(batchId))}/shipments`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  splitCargo: (cargoId, data) =>
+    apiRequest(`/api/cargo/${encodeURIComponent(String(cargoId))}/split`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  assignShipment: (cargoId, shipmentId) =>
+    apiRequest(`/api/cargo/${encodeURIComponent(String(cargoId))}/shipment`, {
+      method: "PUT",
+      body: JSON.stringify({shipment_id: shipmentId}),
+    }),
   assignLogisticsBatch: (cargoId, batchId) =>
     apiRequest(`/api/cargo/${cargoId}/logistics-batch`, {
       method: "PUT",

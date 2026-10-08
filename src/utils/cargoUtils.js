@@ -28,8 +28,8 @@ export function cargoStatusTone(status) {
   const s = String(status || "").toLowerCase();
   if (s === "draft") return "muted";
   if (s === "packed") return "amber";
-  if (s === "dispatched" || s === "in_transit") return "ice";
-  if (s === "received") return "aurora";
+  if (s === "dispatched" || s === "in_transit" || s === "partially_dispatched") return "ice";
+  if (s === "received" || s === "partially_received") return "aurora";
   if (s === "delayed") return "flare";
   if (s === "cancelled") return "muted";
   return "ice";
@@ -135,7 +135,9 @@ const statusRank = {
   planned: 1,
   packed: 2,
   dispatched: 3,
+  partially_dispatched: 3,
   in_transit: 4,
+  partially_received: 4,
   received: 5,
 };
 
@@ -154,7 +156,13 @@ export function resolveBatchStatus(batch, cargoList = [], tracking = null) {
     ? cargoList.filter((c) => matchCargoToBatch(c, batch))
     : [];
 
-  const checkpoints = Array.isArray(tracking?.checkpoints) ? tracking.checkpoints : [];
+  const shipments = Array.isArray(tracking?.shipments) ? tracking.shipments : [];
+  const checkpoints = [
+    ...(Array.isArray(tracking?.checkpoints) ? tracking.checkpoints : []),
+    ...shipments.flatMap((shipment) =>
+      Array.isArray(shipment?.checkpoints) ? shipment.checkpoints : []
+    ),
+  ];
   const hasDispatchedCp = checkpoints.some((cp) => {
     const et = String(cp.event_type || "").toLowerCase().trim();
     return et === "dispatched";
@@ -170,7 +178,29 @@ export function resolveBatchStatus(batch, cargoList = [], tracking = null) {
 
   let derived = null;
 
-  if (assigned.length > 0) {
+  if (shipments.length > 0) {
+    const shipmentStatuses = shipments
+      .map((shipment) => String(shipment?.status || "planned").toLowerCase().trim())
+      .filter((status) => status !== "cancelled");
+    const completedCount = shipmentStatuses.filter((status) => status === "received").length;
+    const movingCount = shipmentStatuses.filter((status) =>
+      status === "dispatched" || status === "in_transit" || status === "received"
+    ).length;
+
+    if (shipmentStatuses.length > 0 && completedCount === shipmentStatuses.length) {
+      derived = "received";
+    } else if (completedCount > 0) {
+      derived = "partially_received";
+    } else if (movingCount > 0 && movingCount < shipmentStatuses.length) {
+      derived = "partially_dispatched";
+    } else if (shipmentStatuses.some((status) => status === "in_transit")) {
+      derived = "in_transit";
+    } else if (shipmentStatuses.some((status) => status === "dispatched")) {
+      derived = "dispatched";
+    }
+  }
+
+  if (!derived && assigned.length > 0) {
     const statuses = assigned.map((c) => String(c.status || "").toLowerCase().trim());
 
     if (statuses.every((s) => s === "received")) {
@@ -199,7 +229,7 @@ export function resolveBatchStatus(batch, cargoList = [], tracking = null) {
     ) {
       derived = "delayed";
     }
-  } else {
+  } else if (!derived) {
     if (hasReceivedCp) derived = "received";
     else if (hasTransitCp) derived = "in_transit";
     else if (hasDispatchedCp) derived = "dispatched";
