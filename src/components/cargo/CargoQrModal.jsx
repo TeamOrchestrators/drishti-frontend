@@ -21,8 +21,9 @@ import {
 import drishtiLogo from "../../assets/logo.png";
 
 export default function CargoQrModal({isOpen, onClose, cargo, isNewlyCreated = false}) {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState("idle");
   const qrWrapperRef = useRef(null);
+  const copyFeedbackTimerRef = useRef(null);
 
   if (!isOpen || !cargo) return null;
 
@@ -34,12 +35,42 @@ export default function CargoQrModal({isOpen, onClose, cargo, isNewlyCreated = f
   const status = cargo.status || "draft";
   const expeditionName = cargo.expedition_name || cargo.expedition_code || "";
 
-  const handleCopyUuid = () => {
+  const handleCopyUuid = async () => {
     if (!qrToken) return;
-    navigator.clipboard.writeText(qrToken).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    if (copyFeedbackTimerRef.current) {
+      clearTimeout(copyFeedbackTimerRef.current);
+    }
+
+    try {
+      let didCopy = false;
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(qrToken);
+          didCopy = true;
+        } catch (clipboardError) {
+          console.warn("Clipboard API unavailable, trying browser fallback:", clipboardError);
+        }
+      }
+
+      if (!didCopy) {
+        const textArea = document.createElement("textarea");
+        textArea.value = qrToken;
+        textArea.setAttribute("readonly", "");
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.select();
+        const copied = document.execCommand("copy");
+        document.body.removeChild(textArea);
+        if (!copied) throw new Error("Clipboard copy command was rejected");
+      }
+      setCopyState("copied");
+    } catch (error) {
+      console.warn("Could not copy cargo UUID:", error);
+      setCopyState("error");
+    }
+
+    copyFeedbackTimerRef.current = setTimeout(() => setCopyState("idle"), 2500);
   };
 
   const handleDownloadPng = () => {
@@ -89,10 +120,10 @@ export default function CargoQrModal({isOpen, onClose, cargo, isNewlyCreated = f
     ctx.fillStyle = "#222222";
     ctx.fillText(`${originStation} → ${destinationStation}`, size / 2, headerHeight + qrSize + 80);
 
-    // Priority & Status
+    // Priority
     ctx.font = "13px sans-serif";
     ctx.fillStyle = "#555555";
-    ctx.fillText(`PRIORITY: ${formatPriority(priority).toUpperCase()}  |  STATUS: ${formatStatus(status).toUpperCase()}`, size / 2, headerHeight + qrSize + 106);
+    ctx.fillText(`PRIORITY: ${formatPriority(priority).toUpperCase()}`, size / 2, headerHeight + qrSize + 106);
 
     // UUID Token
     ctx.font = "11px monospace";
@@ -249,7 +280,7 @@ export default function CargoQrModal({isOpen, onClose, cargo, isNewlyCreated = f
                     Cargo UUID / QR Token
                   </span>
                   <span
-                    className="font-mono text-xs truncate max-w-[280px]"
+                    className="font-mono text-xs truncate max-w-[280px] select-all"
                     style={{color: colors.text}}
                     title={qrToken}
                   >
@@ -261,14 +292,15 @@ export default function CargoQrModal({isOpen, onClose, cargo, isNewlyCreated = f
                   onClick={handleCopyUuid}
                   className="flex items-center gap-1 text-xs px-2 py-1 rounded cursor-pointer transition-opacity hover:opacity-80 flex-shrink-0"
                   style={{
-                    background: copied ? colors.auroraBg : colors.panelAlt,
-                    color: copied ? colors.aurora : colors.textMuted,
-                    border: `1px solid ${copied ? colors.auroraDim : colors.borderSoft}`,
+                    background: copyState === "copied" ? colors.auroraBg : copyState === "error" ? colors.flareBg : colors.panelAlt,
+                    color: copyState === "copied" ? colors.aurora : copyState === "error" ? colors.flare : colors.textMuted,
+                    border: `1px solid ${copyState === "copied" ? colors.auroraDim : copyState === "error" ? colors.flareDim : colors.borderSoft}`,
                   }}
                   title="Copy UUID to clipboard"
+                  aria-live="polite"
                 >
-                  {copied ? <Check size={12}/> : <Copy size={12}/>}
-                  <span>{copied ? "Copied" : "Copy"}</span>
+                  {copyState === "copied" ? <Check size={12}/> : <Copy size={12}/>}
+                  <span>{copyState === "copied" ? "Copied!" : copyState === "error" ? "Copy failed" : "Copy"}</span>
                 </button>
               </div>
             </div>
@@ -380,12 +412,6 @@ export default function CargoQrModal({isOpen, onClose, cargo, isNewlyCreated = f
             <td style={{padding: "4px 0", color: "#555555"}}>Priority:</td>
             <td style={{padding: "4px 0", textAlign: "right", fontWeight: "bold", textTransform: "uppercase"}}>
               {formatPriority(priority)}
-            </td>
-          </tr>
-          <tr>
-            <td style={{padding: "4px 0", color: "#555555"}}>Current Status:</td>
-            <td style={{padding: "4px 0", textAlign: "right", fontWeight: "bold", textTransform: "uppercase"}}>
-              {formatStatus(status)}
             </td>
           </tr>
           {expeditionName && (
