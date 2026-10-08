@@ -129,7 +129,7 @@ const emptyBatchForm = {
 
 const emptyShipmentForm = {
   shipment_code: "",
-  transport_mode: "air",
+  transport_mode: "airlift",
   priority: "critical",
   status: "planned",
   planned_dispatch_at: "",
@@ -634,7 +634,7 @@ const Cargo = () => {
       const source = detail && typeof detail === "object" ? {...cargoItem, ...detail} : cargoItem;
       const availableItems = Array.isArray(source.items) ? source.items : [];
       const urgentRoute = routes.find(
-        (route) => route.priority === "critical" || route.transport_mode === "air",
+        (route) => route.priority === "critical" || route.transport_mode === "airlift",
       );
       setSplitCargoSource({...source, availableRoutes: routes});
       setSplitForm({

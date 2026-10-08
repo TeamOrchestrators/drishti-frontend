@@ -331,11 +331,11 @@ export default function BatchMap({
               layout: {visibility},
               paint: {
                 "line-color": route.color,
-                "line-width": String(route.transport_mode || "").toLowerCase() === "air" ? 4 : 3,
+                "line-width": String(route.transport_mode || "").toLowerCase() === "airlift" ? 4 : 3,
                 "line-opacity": 0.95,
               },
             };
-            if (String(route.transport_mode || "").toLowerCase() !== "air") {
+            if (String(route.transport_mode || "").toLowerCase() !== "airlift") {
               coreLayer.paint["line-dasharray"] = [2, 1.5];
             }
             map.addLayer(coreLayer);

@@ -1,9 +1,8 @@
 export const transportModeOptions = [
-  {value: "air", label: "Air lift"},
-  {value: "sea", label: "Sea freight"},
-  {value: "road", label: "Road convoy"},
-  {value: "traverse", label: "Polar traverse"},
-  {value: "rail", label: "Rail freight"},
+  {value: "airlift", label: "Air lift"},
+  {value: "sea_lift", label: "Sea lift"},
+  {value: "ground", label: "Ground convoy / traverse"},
+  {value: "mixed", label: "Mixed transport"},
   {value: "other", label: "Other"},
 ];
 
@@ -22,10 +21,10 @@ export function normalizeShipmentRoutes(tracking) {
 export function shipmentRouteColor(shipment, index = 0) {
   const priority = String(shipment?.priority || "").toLowerCase();
   const mode = String(shipment?.transport_mode || "").toLowerCase();
-  if (priority === "critical" || mode === "air") return "#F97316";
-  if (mode === "sea") return "#0284C7";
-  if (mode === "traverse") return "#8B5CF6";
-  if (mode === "road") return "#14B8A6";
+  if (priority === "critical" || mode === "airlift") return "#F97316";
+  if (mode === "sea_lift") return "#0284C7";
+  if (mode === "mixed") return "#8B5CF6";
+  if (mode === "ground") return "#14B8A6";
   return routePalette[index % routePalette.length];
 }
 
@@ -37,10 +36,10 @@ export function shipmentRouteLabel(shipment) {
 
 export function shipmentMarkerPrefix(shipment, index = 0) {
   const mode = String(shipment?.transport_mode || "").toUpperCase();
-  if (mode === "AIR") return "A";
-  if (mode === "SEA") return "S";
-  if (mode === "ROAD") return "R";
-  if (mode === "TRAVERSE") return "T";
+  if (mode === "AIRLIFT") return "A";
+  if (mode === "SEA_LIFT") return "S";
+  if (mode === "GROUND") return "G";
+  if (mode === "MIXED") return "M";
   return String(index + 1);
 }
 
