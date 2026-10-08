@@ -9,6 +9,7 @@ import { CardSkeleton } from "../ui/Skeleton.jsx";
 import { colors, mono } from "../../theme.js";
 import { useExpeditionStore } from "../../store/useExpeditionStore.js";
 import {usePersonnelStore} from "../../store/usePersonnelStore.js";
+import {formatDisplayDateTime, toDateTimeLocalValue, toUtcISOString} from "../../utils/dateTime.js";
 
 function isStationMatch(station, currentStation) {
   if (!station || !currentStation) return false;
@@ -72,28 +73,6 @@ const emptyForm = {
   status: "",
 };
 
-function formatDisplayDate(d) {
-  if (!d) return null;
-  try {
-    const date = new Date(d);
-    if (isNaN(date.getTime())) return d;
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  } catch {
-    return d;
-  }
-}
-
-function formatDateInput(d) {
-  if (!d) return "";
-  try {
-    const date = new Date(d);
-    if (isNaN(date.getTime())) return "";
-    return date.toISOString().split("T")[0];
-  } catch {
-    return "";
-  }
-}
-
 function computeTimeline(startDate, endDate) {
   if (!startDate) return "—";
   try {
@@ -109,7 +88,8 @@ function computeTimeline(startDate, endDate) {
     const daysElapsed = Math.max(1, Math.floor((now - start) / (1000 * 60 * 60 * 24)) + 1);
     if (end && !isNaN(end.getTime())) {
       const totalDays = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)));
-      return `Day ${daysElapsed} of ${totalDays}`;
+      const currentDay = Math.min(daysElapsed, totalDays);
+      return `Day ${currentDay} of ${totalDays}`;
     }
     return `Day ${daysElapsed}`;
   } catch {
@@ -294,8 +274,8 @@ const Expedition = () => {
       ? (typeof foundStatus === "object" ? foundStatus.value : foundStatus).toLowerCase()
       : currentStatus;
 
-    const formattedStart = formatDateInput(exp.start_date || exp.startDate);
-    let formattedEnd = formatDateInput(exp.end_date || exp.endDate);
+    const formattedStart = toDateTimeLocalValue(exp.start_date || exp.startDate);
+    let formattedEnd = toDateTimeLocalValue(exp.end_date || exp.endDate);
     if (formattedStart && formattedEnd && formattedEnd < formattedStart) {
       formattedEnd = formattedStart;
     }
@@ -336,18 +316,18 @@ const Expedition = () => {
       return;
     }
     if (!form.start_date) {
-      setFormError("Please select a start date.");
+      setFormError("Please select a start date and time.");
       return;
     }
     if (!form.end_date) {
-      setFormError("Please select an end date.");
+      setFormError("Please select an end date and time.");
       return;
     }
 
-    const startD = new Date(form.start_date.includes("T") ? form.start_date : `${form.start_date}T00:00:00Z`);
-    const endD = new Date(form.end_date.includes("T") ? form.end_date : `${form.end_date}T00:00:00Z`);
+    const startD = new Date(form.start_date);
+    const endD = new Date(form.end_date);
     if (endD < startD) {
-      setFormError("End date cannot be before start date.");
+      setFormError("End date and time cannot be before the start date and time.");
       return;
     }
     if (!form.team_leader_id) {
@@ -365,8 +345,8 @@ const Expedition = () => {
       purpose: form.purpose.trim(),
       origin_station_id: form.origin_station_id,
       destination_station_id: form.destination_station_id,
-      start_date: new Date(form.start_date).toISOString(),
-      end_date: new Date(form.end_date).toISOString(),
+      start_date: toUtcISOString(form.start_date),
+      end_date: toUtcISOString(form.end_date),
       team_leader_id: form.team_leader_id,
       status: (form.status || "").toLowerCase().trim(),
     };
@@ -476,8 +456,8 @@ const Expedition = () => {
             const crewCount = e.crew_assigned ?? e.crew ?? 0;
             const startDate = e.start_date || e.startDate;
             const endDate = e.end_date || e.endDate;
-            const startDateFormatted = formatDisplayDate(startDate);
-            const endDateFormatted = formatDisplayDate(endDate);
+            const startDateFormatted = startDate ? formatDisplayDateTime(startDate, null) : null;
+            const endDateFormatted = endDate ? formatDisplayDateTime(endDate, null) : null;
             const timeline = e.day || computeTimeline(startDate, endDate);
             const tone = e.tone || getTone(e.status);
             const displayStatus = e.status
@@ -661,16 +641,16 @@ const Expedition = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField
-                label="Start date"
-                type="date"
+                label="Start date and time"
+                type="datetime-local"
                 value={form.start_date}
                 onChange={set("start_date")}
                 max={form.end_date || undefined}
                 required
               />
               <FormField
-                label="End date"
-                type="date"
+                label="End date and time"
+                type="datetime-local"
                 value={form.end_date}
                 onChange={set("end_date")}
                 min={form.start_date || undefined}

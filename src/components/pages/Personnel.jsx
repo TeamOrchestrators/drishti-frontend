@@ -22,6 +22,7 @@ import { TableSkeleton, ListSkeleton } from "../ui/Skeleton.jsx";
 import { usePersonnelStore } from "../../store/usePersonnelStore.js";
 import { useExpeditionStore } from "../../store/useExpeditionStore.js";
 import PersonnelDrawer from "../personnel/PersonnelDrawer.jsx";
+import {formatDisplayDateTime, toDateTimeLocalValue, toUtcISOString} from "../../utils/dateTime.js";
 
 function formatStatus(status) {
   if (!status) return "—";
@@ -67,23 +68,6 @@ function getPersonnelStatusBadge(person) {
   return { label: formatStatus(raw), tone: statusTone(raw) };
 }
 
-function formatDisplayDateTime(d) {
-  if (!d) return "—";
-  try {
-    const date = new Date(d);
-    if (isNaN(date.getTime())) return d;
-    const hasSpecificTime = date.getUTCHours() !== 0 || date.getUTCMinutes() !== 0;
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      ...(hasSpecificTime ? { hour: "2-digit", minute: "2-digit" } : {}),
-    });
-  } catch {
-    return d;
-  }
-}
-
 function getInitials(name) {
   if (!name) return "??";
   const cleaned = name.replace(/^(Dr\.|Prof\.|Mr\.|Ms\.|Mrs\.)\s+/i, "").trim();
@@ -118,21 +102,6 @@ function isStationMatch(station, currentStation) {
   if (stationCode && (stationCode.includes(currentStr) || currentStr.includes(stationCode))) return true;
 
   return false;
-}
-
-function toDateInputValue(d) {
-  if (!d) return "";
-  if (typeof d === "string") {
-    const match = d.match(/^(\d{4}-\d{2}-\d{2})/);
-    if (match) return match[1];
-  }
-  try {
-    const date = new Date(d);
-    if (isNaN(date.getTime())) return "";
-    return date.toISOString().split("T")[0];
-  } catch {
-    return "";
-  }
 }
 
 const emptyForm = {
@@ -275,8 +244,8 @@ const Personnel = () => {
       selectedExpedition.estimated_arrival;
 
     return {
-      expDepartureDate: toDateInputValue(rawDep),
-      expArrivalDate: toDateInputValue(rawArr),
+      expDepartureDate: toDateTimeLocalValue(rawDep),
+      expArrivalDate: toDateTimeLocalValue(rawArr),
     };
   }, [selectedExpedition]);
 
@@ -380,8 +349,8 @@ const Personnel = () => {
         selectedExp.planned_arrival_at ||
         selectedExp.estimated_arrival;
 
-      const depDate = toDateInputValue(rawDep);
-      const arrDate = toDateInputValue(rawArr);
+      const depDate = toDateTimeLocalValue(rawDep);
+      const arrDate = toDateTimeLocalValue(rawArr);
 
       setForm((prev) => ({
         ...prev,
@@ -756,18 +725,18 @@ const Personnel = () => {
       return;
     }
     if (!form.departure_time) {
-      setFormError("Please select a departure date.");
+      setFormError("Please select a departure date and time.");
       return;
     }
     if (!form.arrival_time) {
-      setFormError("Please select an arrival date.");
+      setFormError("Please select an arrival date and time.");
       return;
     }
 
-    const depDate = new Date(form.departure_time.includes("T") ? form.departure_time : `${form.departure_time}T00:00:00Z`);
-    const arrDate = new Date(form.arrival_time.includes("T") ? form.arrival_time : `${form.arrival_time}T00:00:00Z`);
+    const depDate = new Date(form.departure_time);
+    const arrDate = new Date(form.arrival_time);
     if (arrDate < depDate) {
-      setFormError("Arrival date cannot be before departure date.");
+      setFormError("Arrival date and time cannot be before departure date and time.");
       return;
     }
 
@@ -804,8 +773,8 @@ const Personnel = () => {
       personnel_id: form.personnel_id,
       origin_station_id: form.origin_station_id,
       destination_station_id: form.destination_station_id,
-      departure_time: depDate.toISOString(),
-      arrival_time: arrDate.toISOString(),
+      departure_time: toUtcISOString(form.departure_time),
+      arrival_time: toUtcISOString(form.arrival_time),
       movement_status: form.movement_status,
     };
 
@@ -1302,8 +1271,8 @@ const Personnel = () => {
             <div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
-                  label="Departure date"
-                  type="date"
+                  label="Departure date and time"
+                  type="datetime-local"
                   value={form.departure_time}
                   onChange={set("departure_time")}
                   min={expDepartureDate || undefined}
@@ -1312,8 +1281,8 @@ const Personnel = () => {
                   required
                 />
                 <FormField
-                  label="Arrival date"
-                  type="date"
+                  label="Arrival date and time"
+                  type="datetime-local"
                   value={form.arrival_time}
                   onChange={set("arrival_time")}
                   min={form.departure_time || expDepartureDate || undefined}

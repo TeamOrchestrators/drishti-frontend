@@ -1,8 +1,8 @@
-import {useEffect, useRef, useState, useCallback, useMemo} from "react";
+import {useEffect, useRef, useState, useCallback} from "react";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
-import {AlertCircle, RefreshCw, Radio, MapPin, Navigation, Maximize2} from "lucide-react";
+import {AlertCircle, RefreshCw, Radio, Navigation, Maximize2} from "lucide-react";
 import { colors, mono } from "../../theme";
 import {useEmergencyStore} from "../../store/useEmergencyStore";
 import MapErrorBoundary from "../ui/MapErrorBoundary";
@@ -18,6 +18,7 @@ if (typeof window !== "undefined" && maplibregl.setWorkerUrl && maplibreWorkerUr
 
 // Standard OpenFreeMap liberty vector style (completely free, no API key required)
 const OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+const EMPTY_TELEMETRY_TRACK = [];
 
 /**
  * Calculates haversine distance in meters between two coordinates.
@@ -159,6 +160,77 @@ function generatePopupHtml(emergency, lat, lng, accuracyMeters, pointsCount) {
   `;
 }
 
+function updateGeoJsonLayers(map, lng, lat, accuracy, trackPoints) {
+  if (!map || map._removed || !map.getCanvas()) return;
+  if (!map.isStyleLoaded()) {
+    map.once("styledata", () => updateGeoJsonLayers(map, lng, lat, accuracy, trackPoints));
+    return;
+  }
+
+  try {
+    const circleSource = map.getSource("emergency-accuracy-circle");
+    if (circleSource) {
+      circleSource.setData(createGeoJSONCircle([lng, lat], accuracy, 64));
+    }
+
+    const safePoints = (trackPoints || []).filter(
+      (point) => point && !isNaN(Number(point.lng)) && !isNaN(Number(point.lat))
+    );
+    const trackSource = map.getSource("emergency-movement-track");
+    if (trackSource) {
+      trackSource.setData({
+        type: "Feature",
+        geometry: {
+          type: "LineString",
+          coordinates: safePoints.length > 1
+            ? safePoints.map((point) => [Number(point.lng), Number(point.lat)])
+            : [],
+        },
+        properties: {},
+      });
+    }
+
+    const pointsSource = map.getSource("emergency-movement-points");
+    if (pointsSource) {
+      pointsSource.setData({
+        type: "FeatureCollection",
+        features: safePoints.slice(0, -1).map((point, index) => ({
+          type: "Feature",
+          geometry: {
+            type: "Point",
+            coordinates: [Number(point.lng), Number(point.lat)],
+          },
+          properties: {
+            title: `Waypoint #${index + 1}`,
+            timestamp: point.timestamp,
+            accuracy: point.accuracy,
+            coordsFormatted: `${Number(point.lat).toFixed(6)}°, ${Number(point.lng).toFixed(6)}°`,
+          },
+        })),
+      });
+    }
+  } catch (layerErr) {
+    console.warn("Could not update GeoJSON layers:", layerErr);
+  }
+}
+
+function calculateTrackDistance(trackPoints) {
+  let distance = 0;
+  for (let index = 1; index < trackPoints.length; index += 1) {
+    const previous = trackPoints[index - 1];
+    const current = trackPoints[index];
+    if (previous && current && !isNaN(Number(previous.lat)) && !isNaN(Number(current.lat))) {
+      distance += getDistanceMeters(
+        Number(previous.lat),
+        Number(previous.lng),
+        Number(current.lat),
+        Number(current.lng)
+      );
+    }
+  }
+  return Math.round(distance);
+}
+
 function EmergencyMapInner({emergency}) {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -175,22 +247,17 @@ function EmergencyMapInner({emergency}) {
   const [retryCount, setRetryCount] = useState(0);
   const [movementAnnotation, setMovementAnnotation] = useState(null);
   const [trackCount, setTrackCount] = useState(1);
-  const [totalMetersTraveled, setTotalMetersTraveled] = useState(0);
 
   // Read stored telemetry tracks safely from global store
   const emergencyKey = emergency?.id || emergency?.device_id || "global_live_track";
-  const storeTracks = useEmergencyStore(
-    (s) => {
-      const tracks = s?.telemetryTracks;
-      if (!tracks) return [];
-      return (
-        tracks[emergencyKey] ||
-        (emergency?.device_id && tracks[emergency.device_id]) ||
-        tracks["global_live_track"] ||
-        []
-      );
-    }
+  const telemetryTracks = useEmergencyStore((state) => state.telemetryTracks);
+  const storeTracks = (
+    telemetryTracks?.[emergencyKey] ||
+    (emergency?.device_id && telemetryTracks?.[emergency.device_id]) ||
+    telemetryTracks?.global_live_track ||
+    EMPTY_TELEMETRY_TRACK
   );
+  const totalMetersTraveled = calculateTrackDistance(storeTracks);
 
   const rawLat = Number(emergency?.latitude);
   const rawLng = Number(emergency?.longitude);
@@ -215,71 +282,6 @@ function EmergencyMapInner({emergency}) {
     setErrorMessage("");
     setMapLoaded(false);
     setRetryCount((prev) => prev + 1);
-  }, []);
-
-  // Update GeoJSON layers (accuracy circle, movement track line, waypoint dots)
-  const updateGeoJsonLayers = useCallback((map, lng, lat, accuracy, trackPoints) => {
-    if (!map || map._removed || !map.getCanvas()) return;
-    if (!map.isStyleLoaded()) {
-      map.once("styledata", () => {
-        if (!map || map._removed || !map.getCanvas()) return;
-        updateGeoJsonLayers(map, lng, lat, accuracy, trackPoints);
-      });
-      return;
-    }
-
-    try {
-      // 1. Update Accuracy Circle
-      const circleSource = map.getSource("emergency-accuracy-circle");
-      if (circleSource) {
-        circleSource.setData(createGeoJSONCircle([lng, lat], accuracy, 64));
-      }
-
-      // 2. Update Movement Track Line
-      const trackSource = map.getSource("emergency-movement-track");
-      if (trackSource) {
-        const safeCoords = (trackPoints || [])
-          .filter((p) => p && !isNaN(Number(p.lng)) && !isNaN(Number(p.lat)))
-          .map((p) => [Number(p.lng), Number(p.lat)]);
-
-        trackSource.setData({
-          type: "Feature",
-          geometry: {
-            type: "LineString",
-            coordinates: safeCoords.length > 1 ? safeCoords : [],
-          },
-          properties: {},
-        });
-      }
-
-      // 3. Update Movement Waypoint Points
-      const pointsSource = map.getSource("emergency-movement-points");
-      if (pointsSource) {
-        const validPoints = (trackPoints || []).filter(
-          (p) => p && !isNaN(Number(p.lng)) && !isNaN(Number(p.lat))
-        );
-        const pointFeatures = validPoints.slice(0, -1).map((p, idx) => ({
-          type: "Feature",
-          geometry: {
-            type: "Point",
-            coordinates: [Number(p.lng), Number(p.lat)],
-          },
-          properties: {
-            title: `Waypoint #${idx + 1}`,
-            timestamp: p.timestamp,
-            accuracy: p.accuracy,
-            coordsFormatted: `${Number(p.lat).toFixed(6)}°, ${Number(p.lng).toFixed(6)}°`,
-          },
-        }));
-
-        pointsSource.setData({
-          type: "FeatureCollection",
-          features: pointFeatures,
-        });
-      }
-    } catch (layerErr) {
-      console.warn("Could not update GeoJSON layers:", layerErr);
-    }
   }, []);
 
   // 1. MAP INITIALIZATION EFFECT — ONLY RUNS ONCE ON MOUNT (or on retry)
@@ -552,7 +554,7 @@ function EmergencyMapInner({emergency}) {
       if (mapInstanceRef.current) {
         try {
           mapInstanceRef.current.remove();
-        } catch (e) {
+        } catch {
           // ignore cleanup errors during teardown
         }
         mapInstanceRef.current = null;
@@ -560,64 +562,10 @@ function EmergencyMapInner({emergency}) {
       markerRef.current = null;
       popupRef.current = null;
     };
-  }, [isValidCoords, retryCount]); // <-- STRICTLY STABLE DEPENDENCIES!
-
-  // Calculate total meters traveled whenever track points change
-  useEffect(() => {
-    try {
-      const pts = trackPointsRef.current;
-      if (pts && pts.length >= 2) {
-        let d = 0;
-        for (let i = 1; i < pts.length; i++) {
-          const p1 = pts[i - 1];
-          const p2 = pts[i];
-          if (p1 && p2 && !isNaN(Number(p1.lat)) && !isNaN(Number(p2.lat))) {
-            d += getDistanceMeters(Number(p1.lat), Number(p1.lng), Number(p2.lat), Number(p2.lng));
-          }
-        }
-        setTotalMetersTraveled(Math.round(d));
-      } else {
-        setTotalMetersTraveled(0);
-      }
-    } catch {
-      setTotalMetersTraveled(0);
-    }
-  }, [trackCount]);
-
-  // Synchronize with global store telemetry tracks
-  useEffect(() => {
-    if (!isValidCoords) return;
-    if (storeTracks && storeTracks.length > 0) {
-      if (storeTracks.length > trackPointsRef.current.length) {
-        trackPointsRef.current = [...storeTracks];
-        setTrackCount(storeTracks.length);
-        const last = storeTracks[storeTracks.length - 1];
-        if (last) {
-          lastCoordsRef.current = {lng: Number(last.lng), lat: Number(last.lat)};
-
-          if (mapInstanceRef.current && !mapInstanceRef.current._removed) {
-            updateGeoJsonLayers(
-              mapInstanceRef.current,
-              Number(last.lng),
-              Number(last.lat),
-              accuracyMeters,
-              trackPointsRef.current
-            );
-            if (markerRef.current) {
-              markerRef.current.setLngLat([Number(last.lng), Number(last.lat)]);
-            }
-            try {
-              mapInstanceRef.current.easeTo({
-                center: [Number(last.lng), Number(last.lat)],
-                duration: 800,
-              });
-            } catch {
-            }
-          }
-        }
-      }
-    }
-  }, [storeTracks, isValidCoords, accuracyMeters, updateGeoJsonLayers]);
+    // Map creation is intentionally isolated from heartbeat updates. The
+    // heartbeat effect below updates the existing instance in place.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isValidCoords, retryCount]);
 
   const handleFitTrail = useCallback(() => {
     try {
@@ -653,6 +601,8 @@ function EmergencyMapInner({emergency}) {
   // 2. HEARTBEAT & LOCATION UPDATE EFFECT — ANNOTATES MAP WITHOUT RELOADING
   useEffect(() => {
     if (!isValidCoords || !mapInstanceRef.current) return;
+
+    let annotationTimer;
 
     const map = mapInstanceRef.current;
     const prev = lastCoordsRef.current;
@@ -692,10 +642,9 @@ function EmergencyMapInner({emergency}) {
       // Show temporary movement annotation badge on map
       if (hasMoved && distanceMoved > 0) {
         setMovementAnnotation(`Device moved +${distanceMoved}m • Telemetry updated`);
-        const timer = setTimeout(() => {
+        annotationTimer = setTimeout(() => {
           setMovementAnnotation(null);
         }, 5000);
-        return () => clearTimeout(timer);
       }
     }
 
@@ -733,7 +682,11 @@ function EmergencyMapInner({emergency}) {
       accuracyMeters,
       trackPointsRef.current
     );
-  }, [isValidCoords, rawLat, rawLng, accuracyMeters, emergency, updateGeoJsonLayers]);
+
+    return () => {
+      if (annotationTimer) clearTimeout(annotationTimer);
+    };
+  }, [isValidCoords, rawLat, rawLng, accuracyMeters, emergency]);
 
   if (!isValidCoords) {
     return (

@@ -33,6 +33,7 @@ import {
   resolveBatchStatus,
   batchStatusTone,
 } from "../../utils/cargoUtils.js";
+import {formatDisplayDateTime, toDateTimeLocalValue, toUtcISOString} from "../../utils/dateTime.js";
 
 const priorityOptions = [
   { value: "standard", label: "Standard" },
@@ -96,38 +97,6 @@ function formatBatchOption(b) {
   const dest = b.destination_station_name || "—";
   const status = b.status || "planned";
   return `${code} · ${origin} → ${dest} · ${status}`;
-}
-
-function formatDisplayDate(d) {
-  if (!d) return "—";
-  try {
-    const date = new Date(d);
-    if (isNaN(date.getTime())) return d;
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return d;
-  }
-}
-
-function toDateInputValue(d) {
-  if (!d) return "";
-  if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}/.test(d)) {
-    return d.slice(0, 10);
-  }
-  try {
-    const date = new Date(d);
-    if (isNaN(date.getTime())) return "";
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  } catch {
-    return "";
-  }
 }
 
 const emptyCargoForm = {
@@ -295,10 +264,10 @@ const Cargo = () => {
           const startDate = exp.start_date || exp.startDate;
           const endDate = exp.end_date || exp.endDate;
           if (startDate) {
-            updated.planned_dispatch_at = toDateInputValue(startDate);
+            updated.planned_dispatch_at = toDateTimeLocalValue(startDate);
           }
           if (endDate) {
-            updated.estimated_arrival_at = toDateInputValue(endDate);
+            updated.estimated_arrival_at = toDateTimeLocalValue(endDate);
           }
           if (
             updated.planned_dispatch_at &&
@@ -478,11 +447,11 @@ const Cargo = () => {
       return;
     }
     if (!batchForm.planned_dispatch_at) {
-      setBatchFormError("Please select a planned dispatch date.");
+      setBatchFormError("Please select a planned dispatch date and time.");
       return;
     }
     if (!batchForm.estimated_arrival_at) {
-      setBatchFormError("Please select an estimated arrival date.");
+      setBatchFormError("Please select an estimated arrival date and time.");
       return;
     }
 
@@ -490,8 +459,26 @@ const Cargo = () => {
     const arrivalTime = new Date(batchForm.estimated_arrival_at).getTime();
     if (arrivalTime < dispatchTime) {
       setBatchFormError(
-        "Estimated arrival date cannot be earlier than planned dispatch date.",
+        "Estimated arrival date and time cannot be earlier than planned dispatch date and time.",
       );
+      return;
+    }
+
+    const selectedExpedition = expeditions.find(
+      (expedition) => expedition.id === batchForm.expedition_id,
+    );
+    const expeditionStart = toDateTimeLocalValue(
+      selectedExpedition?.start_date || selectedExpedition?.startDate,
+    );
+    const expeditionEnd = toDateTimeLocalValue(
+      selectedExpedition?.end_date || selectedExpedition?.endDate,
+    );
+    if (expeditionStart && batchForm.planned_dispatch_at < expeditionStart) {
+      setBatchFormError("Planned dispatch cannot be before the expedition starts.");
+      return;
+    }
+    if (expeditionEnd && batchForm.estimated_arrival_at > expeditionEnd) {
+      setBatchFormError("Estimated arrival cannot be after the expedition ends.");
       return;
     }
 
@@ -499,12 +486,8 @@ const Cargo = () => {
       batch_code: trimmedCode,
       expedition_id: batchForm.expedition_id,
       status: batchForm.status || "planned",
-      planned_dispatch_at: new Date(
-        batchForm.planned_dispatch_at,
-      ).toISOString(),
-      estimated_arrival_at: new Date(
-        batchForm.estimated_arrival_at,
-      ).toISOString(),
+      planned_dispatch_at: toUtcISOString(batchForm.planned_dispatch_at),
+      estimated_arrival_at: toUtcISOString(batchForm.estimated_arrival_at),
       notes: batchForm.notes ? batchForm.notes.trim() : "",
     };
 
@@ -575,6 +558,19 @@ const Cargo = () => {
   const selectedExpeditionForBatch = expeditions.find(
     (e) => e.id === batchForm.expedition_id,
   );
+  const batchWindowStart = toDateTimeLocalValue(
+    selectedExpeditionForBatch?.start_date || selectedExpeditionForBatch?.startDate,
+  );
+  const batchWindowEnd = toDateTimeLocalValue(
+    selectedExpeditionForBatch?.end_date || selectedExpeditionForBatch?.endDate,
+  );
+  const dispatchMaximum = [batchForm.estimated_arrival_at, batchWindowEnd]
+    .filter(Boolean)
+    .sort()[0];
+  const arrivalMinimum = [batchForm.planned_dispatch_at, batchWindowStart]
+    .filter(Boolean)
+    .sort()
+    .at(-1);
 
   return (
     <div className="flex flex-col gap-6">
@@ -1007,8 +1003,8 @@ const Cargo = () => {
                           style={{color: colors.textFaint}}
                         />
                         <span style={{color: colors.textMuted, fontSize: 12}}>
-                        {formatDisplayDate(b.planned_dispatch_at)} →{" "}
-                          {formatDisplayDate(b.estimated_arrival_at)}
+                        {formatDisplayDateTime(b.planned_dispatch_at)} →{" "}
+                          {formatDisplayDateTime(b.estimated_arrival_at)}
                       </span>
                       </div>
                     </div>
@@ -1522,11 +1518,11 @@ const Cargo = () => {
                         style={{color: colors.aurora}}
                       >
                         Dispatch & arrival dates autofilled:{" "}
-                        {formatDisplayDate(
+                        {formatDisplayDateTime(
                           selectedExpeditionForBatch.start_date,
                         )}{" "}
                         →{" "}
-                        {formatDisplayDate(selectedExpeditionForBatch.end_date)}
+                        {formatDisplayDateTime(selectedExpeditionForBatch.end_date)}
                       </span>
                     )}
                   </span>
@@ -1543,19 +1539,21 @@ const Cargo = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField
-                label="Planned dispatch date"
-                type="date"
+                label="Planned dispatch date and time"
+                type="datetime-local"
                 value={batchForm.planned_dispatch_at}
                 onChange={setB("planned_dispatch_at")}
-                max={batchForm.estimated_arrival_at || undefined}
+                min={batchWindowStart || undefined}
+                max={dispatchMaximum || undefined}
                 required
               />
               <FormField
-                label="Estimated arrival date"
-                type="date"
+                label="Estimated arrival date and time"
+                type="datetime-local"
                 value={batchForm.estimated_arrival_at}
                 onChange={setB("estimated_arrival_at")}
-                min={batchForm.planned_dispatch_at || undefined}
+                min={arrivalMinimum || undefined}
+                max={batchWindowEnd || undefined}
                 required
               />
             </div>

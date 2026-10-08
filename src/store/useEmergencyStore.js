@@ -58,11 +58,6 @@ export const useEmergencyStore = create((set, get) => ({
         ? data.emergencies
         : [];
 
-      const activeList = list.filter((e) => {
-        const s = (e.status || "").toLowerCase();
-        return s !== "resolved" && s !== "cancelled";
-      });
-
       // Update emergency coordinates if we have live telemetry tracks for them
       const tracks = get().telemetryTracks;
       const enrichedList = list.map((e) => {
@@ -199,6 +194,10 @@ export const useEmergencyStore = create((set, get) => ({
       // Append if first point or if moved beyond 0.00001 deg (~1m)
       if (!last || Math.abs(last.lat - lat) > 0.00001 || Math.abs(last.lng - lng) > 0.00001) {
         currentTracks[key] = [...existing.slice(-200), newPoint];
+      } else {
+        // Keep the route free of duplicate points while still advancing the
+        // live heartbeat metadata for a stationary device.
+        currentTracks[key] = [...existing.slice(0, -1), {...last, ...newPoint}];
       }
     });
 
@@ -225,6 +224,8 @@ export const useEmergencyStore = create((set, get) => ({
       return e;
     };
 
+    const updatedActive = get().activeEmergencies.map(updateEmergencyObj);
+    const updatedAll = get().emergencies.map(updateEmergencyObj);
     let finalActive = updatedActive;
     if (finalActive.length === 0) {
       const syntheticEmergency = {
@@ -259,7 +260,8 @@ export const useEmergencyStore = create((set, get) => ({
 
     try {
       localStorage.setItem(LAST_TELEMETRY_KEY, JSON.stringify(latestTelem));
-    } catch {
+    } catch (err) {
+      console.warn("Could not save latest telemetry:", err);
     }
 
     set({
@@ -316,6 +318,8 @@ if (broadcastChannel) {
         const last = existing[existing.length - 1];
         if (!last || Math.abs(last.lat - lat) > 0.00001 || Math.abs(last.lng - lng) > 0.00001) {
           currentTracks[key] = [...existing.slice(-200), newPoint];
+        } else {
+          currentTracks[key] = [...existing.slice(0, -1), {...last, ...newPoint}];
         }
       });
 

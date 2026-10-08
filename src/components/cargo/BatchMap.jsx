@@ -51,88 +51,84 @@ export default function BatchMap({
   const batchCode = batch?.batch_code || cargo?.logistics_batch_code || "";
 
   // Resolve Station Coordinates
-  const originCoords = resolveStationCoords(originName, stations);
-  const destCoords = resolveStationCoords(destName, stations);
+  const originCoords = useMemo(
+    () => resolveStationCoords(originName, stations),
+    [originName, stations]
+  );
+  const destCoords = useMemo(
+    () => resolveStationCoords(destName, stations),
+    [destName, stations]
+  );
 
   // Collect All Checkpoint Waypoints (must be real GPS coordinates)
-  const waypoints = [];
+  const waypoints = useMemo(() => {
+    const collected = [];
+    const appendWaypoint = (point, cargoCode) => {
+      const lat = Number(point.latitude);
+      const lng = Number(point.longitude);
+      if (!isValidCoordinate(lat, lng)) return;
 
-  // 1. From batch tracking checkpoints (e.g. from /api/logistics-batches/{id}/tracking)
-  const batchCheckpoints = Array.isArray(checkpoints) && checkpoints.length > 0
-    ? checkpoints
-    : Array.isArray(batch?.checkpoints) && batch.checkpoints.length > 0
-      ? batch.checkpoints
-      : [];
-
-  batchCheckpoints.forEach((cp, idx) => {
-    const lat = Number(cp.latitude);
-    const lng = Number(cp.longitude);
-    if (isValidCoordinate(lat, lng)) {
-      waypoints.push({
+      collected.push({
         lat,
         lng,
-        cargoCode: batch?.batch_code || "BATCH",
-        eventType: cp.event_type || "checkpoint",
-        timestamp: cp.scanned_at,
-        notes: cp.notes,
-        stationName: cp.station_name,
-        personnelName: cp.personnel_name || cp.scanned_by_personnel_name,
-        sequence: idx + 1,
-        affectedCargoCount: cp.affected_cargo_count,
+        cargoCode,
+        eventType: point.event_type || "checkpoint",
+        timestamp: point.scanned_at,
+        notes: point.notes,
+        stationName: point.station_name,
+        personnelName: point.personnel_name || point.scanned_by_personnel_name,
+        affectedCargoCount: point.affected_cargo_count,
+        sourceOrder: collected.length,
+      });
+    };
+
+    const batchCheckpoints = Array.isArray(checkpoints) && checkpoints.length > 0
+      ? checkpoints
+      : Array.isArray(batch?.checkpoints) && batch.checkpoints.length > 0
+        ? batch.checkpoints
+        : [];
+    batchCheckpoints.forEach((checkpoint) => {
+      appendWaypoint(checkpoint, batch?.batch_code || "BATCH");
+    });
+
+    if (cargo && Array.isArray(cargo.scan_history)) {
+      cargo.scan_history.forEach((scan) => {
+        appendWaypoint(scan, cargo.cargo_code || "CG");
       });
     }
-  });
 
-  // 2. From single cargo scan_history
-  if (cargo && Array.isArray(cargo.scan_history)) {
-    cargo.scan_history.forEach((sh, idx) => {
-      const lat = Number(sh.latitude);
-      const lng = Number(sh.longitude);
-      if (isValidCoordinate(lat, lng)) {
-        waypoints.push({
-          lat,
-          lng,
-          cargoCode: cargo.cargo_code || "CG",
-          eventType: sh.event_type || "scanned",
-          timestamp: sh.scanned_at,
-          notes: sh.notes,
-          stationName: sh.station_name,
-          personnelName: sh.scanned_by_personnel_name,
-          sequence: idx + 1,
-        });
-      }
-    });
-  }
-
-  // 3. From cargoList assigned to batch
-  if (Array.isArray(cargoList)) {
-    cargoList.forEach((c) => {
-      if (Array.isArray(c.scan_history)) {
-        c.scan_history.forEach((sh) => {
-          const lat = Number(sh.latitude);
-          const lng = Number(sh.longitude);
-          if (isValidCoordinate(lat, lng)) {
-            const isDuplicate = waypoints.some(
-              (w) => Math.abs(w.lat - lat) < 0.0001 && Math.abs(w.lng - lng) < 0.0001
-            );
-            if (!isDuplicate) {
-              waypoints.push({
-                lat,
-                lng,
-                cargoCode: c.cargo_code || c.id || "CG",
-                eventType: sh.event_type || "scanned",
-                timestamp: sh.scanned_at,
-                notes: sh.notes,
-                stationName: sh.station_name,
-                personnelName: sh.scanned_by_personnel_name,
-                sequence: waypoints.length + 1,
-              });
-            }
+    if (Array.isArray(cargoList)) {
+      cargoList.forEach((cargoItem) => {
+        if (!Array.isArray(cargoItem.scan_history)) return;
+        cargoItem.scan_history.forEach((scan) => {
+          const lat = Number(scan.latitude);
+          const lng = Number(scan.longitude);
+          const isDuplicate = collected.some(
+            (waypoint) =>
+              Math.abs(waypoint.lat - lat) < 0.0001 &&
+              Math.abs(waypoint.lng - lng) < 0.0001 &&
+              waypoint.timestamp === scan.scanned_at
+          );
+          if (!isDuplicate) {
+            appendWaypoint(scan, cargoItem.cargo_code || cargoItem.id || "CG");
           }
         });
-      }
-    });
-  }
+      });
+    }
+
+    return collected
+      .sort((left, right) => {
+        const leftTime = Date.parse(left.timestamp);
+        const rightTime = Date.parse(right.timestamp);
+        if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime) && leftTime !== rightTime) {
+          return leftTime - rightTime;
+        }
+        if (!Number.isNaN(leftTime) && Number.isNaN(rightTime)) return -1;
+        if (Number.isNaN(leftTime) && !Number.isNaN(rightTime)) return 1;
+        return left.sourceOrder - right.sourceOrder;
+      })
+      .map((waypoint, index) => ({...waypoint, sequence: index + 1}));
+  }, [checkpoints, batch?.checkpoints, batch?.batch_code, cargo, cargoList]);
 
   const hasRealCheckpoints = waypoints.length > 0;
 
@@ -350,8 +346,7 @@ export default function BatchMap({
         mapInstanceRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [retryCount, hasRealCheckpoints, originName, destName, waypoints.length]);
+  }, [retryCount, hasRealCheckpoints, originCoords, destCoords, originName, destName, waypoints]);
 
   if (!hasRealCheckpoints) {
     return (
