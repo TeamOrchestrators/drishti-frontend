@@ -42,6 +42,17 @@ function routeLayerIds(routeId) {
   };
 }
 
+function checkpointIdentity(point) {
+  const checkpointId = point?.checkpointId || point?.id || point?.scan_id;
+  if (checkpointId) return `id:${checkpointId}`;
+
+  const lat = Number(point?.lat ?? point?.latitude);
+  const lng = Number(point?.lng ?? point?.longitude);
+  const timestamp = point?.timestamp || point?.scanned_at || "";
+  const eventType = point?.eventType || point?.event_type || "checkpoint";
+  return `point:${lat.toFixed(6)}:${lng.toFixed(6)}:${timestamp}:${eventType}`;
+}
+
 export default function BatchMap({
                                    batch,
                                    cargo,
@@ -87,6 +98,8 @@ export default function BatchMap({
       if (!isValidCoordinate(lat, lng)) return;
 
       collected.push({
+        checkpointId: point.id || point.scan_id,
+        cargoId: point.cargo_id,
         lat,
         lng,
         cargoCode,
@@ -150,7 +163,7 @@ export default function BatchMap({
 
   const routes = useMemo(() => {
     if (Array.isArray(shipments) && shipments.length > 0) {
-      return shipments.map((shipment, routeIndex) => {
+      const shipmentRoutes = shipments.map((shipment, routeIndex) => {
         const shipmentCheckpoints = (Array.isArray(shipment.checkpoints) ? shipment.checkpoints : [])
           .map((checkpoint, sourceOrder) => ({
             ...checkpoint,
@@ -193,6 +206,29 @@ export default function BatchMap({
           waypoints: shipmentCheckpoints,
         };
       });
+
+      const shipmentCheckpointKeys = new Set(
+        shipmentRoutes.flatMap((route) => route.waypoints.map(checkpointIdentity)),
+      );
+      const rootWaypoints = waypoints
+        .filter((waypoint) => !shipmentCheckpointKeys.has(checkpointIdentity(waypoint)))
+        .map((waypoint, index) => ({...waypoint, sequence: index + 1}));
+
+      if (rootWaypoints.length > 0) {
+        shipmentRoutes.push({
+          id: `${batchCode || "batch"}-checkpoints`,
+          label: `${batchCode || "Batch"} · Batch checkpoints`,
+          color: "#64748B",
+          markerPrefix: "B",
+          originCoords,
+          destCoords,
+          waypoints: rootWaypoints,
+          status: batch?.status,
+          transport_mode: "other",
+        });
+      }
+
+      return shipmentRoutes;
     }
 
     return [{

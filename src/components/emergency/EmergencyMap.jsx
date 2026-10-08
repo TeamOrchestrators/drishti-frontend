@@ -248,6 +248,7 @@ function EmergencyMapInner({emergency}) {
   const [retryCount, setRetryCount] = useState(0);
   const [movementAnnotation, setMovementAnnotation] = useState(null);
   const [trackCount, setTrackCount] = useState(1);
+  const [totalMetersTraveled, setTotalMetersTraveled] = useState(0);
 
   // Read stored telemetry tracks safely from global store
   const emergencyKey = emergency?.id || emergency?.device_id || "global_live_track";
@@ -258,7 +259,9 @@ function EmergencyMapInner({emergency}) {
     telemetryTracks?.global_live_track ||
     EMPTY_TELEMETRY_TRACK
   );
-  const totalMetersTraveled = calculateTrackDistance(storeTracks);
+  useEffect(() => {
+    setTotalMetersTraveled(calculateTrackDistance(trackPointsRef.current));
+  }, [trackCount]);
 
   const rawLat = Number(emergency?.latitude);
   const rawLng = Number(emergency?.longitude);
