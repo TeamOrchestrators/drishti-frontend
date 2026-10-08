@@ -105,7 +105,14 @@ function formatBatchOption(b) {
   const origin = b.origin_station_name || "—";
   const dest = b.destination_station_name || "—";
   const status = b.status || "planned";
-  return `${code} · ${origin} → ${dest} · ${status}`;
+  return `${code} · ${origin} → ${dest} · ${formatStatus(status)}`;
+}
+
+function formatShipmentOption(shipment) {
+  const code = shipment.shipment_code || "Shipment";
+  const mode = formatStatus(shipment.transport_mode || "route");
+  const priority = formatPriority(shipment.priority || "standard");
+  return `${code} · ${mode} · ${priority}`;
 }
 
 const emptyCargoForm = {
@@ -1194,8 +1201,8 @@ const Cargo = () => {
                                     <div className="text-xs font-semibold truncate" style={{color: colors.text, ...mono}}>
                                       {shipment.shipment_code}
                                     </div>
-                                    <div className="text-[10px] capitalize truncate" style={{color: colors.textMuted}}>
-                                      {String(shipment.transport_mode || "route").replace(/_/g, " ")} · {shipment.priority || "standard"} priority
+                                    <div className="text-[10px] truncate" style={{color: colors.textMuted}}>
+                                      {formatStatus(shipment.transport_mode || "route")} · {formatPriority(shipment.priority)} priority
                                     </div>
                                   </div>
                                 </div>
@@ -1566,7 +1573,7 @@ const Cargo = () => {
                                 <option value="">No child shipment</option>
                                 {availableShipments.map((shipment) => (
                                   <option key={shipment.id} value={shipment.id}>
-                                    {shipment.shipment_code} · {shipment.transport_mode || "route"} · {shipment.priority || "standard"}
+                                    {formatShipmentOption(shipment)}
                                   </option>
                                 ))}
                               </select>
@@ -2053,7 +2060,7 @@ const Cargo = () => {
                 as="select"
                 options={(splitCargoSource.availableRoutes || []).map((route) => ({
                   value: route.id,
-                  label: `${route.shipment_code} · ${route.transport_mode || "route"} · ${route.priority || "standard"}`,
+                  label: formatShipmentOption(route),
                 }))}
                 value={splitForm.shipment_id}
                 onChange={setSplitField("shipment_id")}
