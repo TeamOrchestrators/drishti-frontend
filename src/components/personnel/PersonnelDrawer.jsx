@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import {colors, mono} from "../../theme.js";
 import Pill from "../ui/Pill.jsx";
+import {formatEnumLabel} from "../../utils/formatLabel.js";
 
 function formatStatus(status) {
   if (!status) return "—";
@@ -184,7 +185,7 @@ const PersonnelDrawer = ({person, onClose, movementHistory = []}) => {
                 </h2>
               </div>
               <div className="text-xs truncate mt-0.5" style={{color: colors.textMuted}}>
-                {person.role || "Station Staff"}
+                {formatEnumLabel(person.role, "Station Staff")}
               </div>
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 <Pill tone={statusBadge.tone}>{statusBadge.label}</Pill>

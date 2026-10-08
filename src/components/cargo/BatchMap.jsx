@@ -5,6 +5,7 @@ import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
 import {AlertCircle, RefreshCw, MapPin, Navigation, ArrowRight} from "lucide-react";
 import {colors, mono} from "../../theme.js";
 import {resolveStationCoords, isValidCoordinate, formatCoordinates} from "../../utils/geo.js";
+import {formatEnumLabel} from "../../utils/formatLabel.js";
 import {
   shipmentMarkerPrefix,
   shipmentRouteColor,
@@ -406,7 +407,7 @@ export default function BatchMap({
             <div style="font-family: sans-serif; font-size: 12px; color: #0F172A; min-width: 190px;">
               <div style="font-weight: 700; color: ${route.color}; margin-bottom: 4px;">${escapeHtml(route.label)}</div>
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-bottom: 3px;">
-                <span style="background: #F1F5F9; color: #334155; font-weight: 600; font-size: 10px; padding: 1px 6px; border-radius: 4px; text-transform: uppercase;">${escapeHtml(waypoint.eventType)}</span>
+                <span style="background: #F1F5F9; color: #334155; font-weight: 600; font-size: 10px; padding: 1px 6px; border-radius: 4px; text-transform: uppercase;">${escapeHtml(formatEnumLabel(waypoint.eventType, "Checkpoint"))}</span>
                 <span style="font-family: monospace; font-size: 11px; font-weight: 600; color: ${route.color};">${escapeHtml(waypoint.cargoCode)}</span>
               </div>
               <div style="font-size: 11px; color: #64748B; margin-bottom: 2px;">${waypoint.timestamp ? new Date(waypoint.timestamp).toLocaleString() : ""}</div>

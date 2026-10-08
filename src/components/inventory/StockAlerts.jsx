@@ -1,5 +1,6 @@
 import { TriangleAlert } from "lucide-react";
 import { colors, mono } from "../../theme";
+import {formatEnumLabel} from "../../utils/formatLabel.js";
 
 /**
  * Isolated StockAlerts Component
@@ -51,7 +52,7 @@ export default function StockAlerts({ items = [] }) {
                     {i.name}
                   </span>
                   <span className="ml-1.5" style={{ color: colors.textFaint }}>
-                    ({i.category})
+                    ({formatEnumLabel(i.category, "General")})
                   </span>
                 </div>
                 <span className="flex-shrink-0 font-medium" style={{ color: colors.flare, ...mono }}>
@@ -94,7 +95,7 @@ export default function StockAlerts({ items = [] }) {
                     {i.name}
                   </span>
                   <span className="ml-1.5" style={{ color: colors.textFaint }}>
-                    ({i.category})
+                    ({formatEnumLabel(i.category, "General")})
                   </span>
                 </div>
                 <span className="flex-shrink-0 font-medium" style={{ color: colors.amber, ...mono }}>

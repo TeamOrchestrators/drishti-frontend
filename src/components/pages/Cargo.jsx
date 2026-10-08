@@ -37,6 +37,7 @@ import {
   batchStatusTone,
 } from "../../utils/cargoUtils.js";
 import {formatDisplayDateTime, toDateTimeLocalValue, toUtcISOString} from "../../utils/dateTime.js";
+import {formatEnumLabel} from "../../utils/formatLabel.js";
 import {
   normalizeShipmentRoutes,
   shipmentRouteColor,
@@ -89,10 +90,7 @@ function priorityTone(priority) {
 }
 
 function formatStatus(status) {
-  if (!status) return "—";
-  return String(status)
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return formatEnumLabel(status);
 }
 
 function formatPriority(priority) {

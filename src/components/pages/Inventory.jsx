@@ -17,11 +17,11 @@ import Bar from "../ui/Bar";
 import SectionHeading from "../ui/SectionHeading";
 import Modal from "../ui/Modal";
 import FormField from "../ui/Formfield";
-import InventoryAlerts from "../inventory/InventoryAlerts";
 import InventoryAnalyticsSummary from "../inventory/InventoryAnalyticsSummary";
 import InventoryAnomalyNotice from "../inventory/InventoryAnomalyNotice";
 import { inventoryApi } from "../../services/api";
 import { useInventoryStore } from "../../store/useInventoryStore";
+import {formatEnumLabel} from "../../utils/formatLabel.js";
 
 const emptyItemForm = {
   item_code: "",
@@ -85,7 +85,6 @@ export default function InventoryView() {
     bhartiStationId,
     items,
     history,
-    alerts,
     analyticsAvailable,
     loading,
     error,
@@ -527,7 +526,7 @@ export default function InventoryView() {
                     </div>
                     {/* Under item name show category · unit */}
                     <div className="text-xs truncate mt-0.5" style={{ color: colors.textMuted }}>
-                      {i.category || "General"} · {i.unit || "units"}
+                      {formatEnumLabel(i.category, "General")} · {i.unit || "units"}
                     </div>
                   </div>
                   <Pill tone={tone}>{statusLabel}</Pill>

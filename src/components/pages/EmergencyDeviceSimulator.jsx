@@ -9,27 +9,20 @@ import {
   BatteryCharging,
   CheckCircle2,
   AlertCircle,
-  Clock,
   ChevronLeft,
   Loader2,
   Send,
-  ShieldAlert,
-  MapPin,
-  RefreshCw,
   Sun,
   Moon,
   Activity,
-  User,
-  Compass,
-  Gauge,
 } from "lucide-react";
 import { colors, mono, font } from "../../theme";
 import { formatCoordinates } from "../../utils/geo";
+import {formatEnumLabel} from "../../utils/formatLabel.js";
 import { emergencySimulatorApi } from "../../services/api";
 import { useEmergencyStore } from "../../store/useEmergencyStore";
 import { useTheme } from "../../context/ThemeContext";
 import Panel from "../ui/Panel";
-import Pill from "../ui/Pill";
 import Modal from "../ui/Modal";
 
 const DEMO_BHARTI_COORDS = {
@@ -879,7 +872,7 @@ export default function EmergencyDeviceSimulator() {
                   Severity Level
                 </span>
                 <span className="font-semibold uppercase" style={{ color: colors.flare }}>
-                  {sosSuccessResult.severity}
+                  {formatEnumLabel(sosSuccessResult.severity)}
                 </span>
               </div>
               <div>
@@ -956,7 +949,7 @@ export default function EmergencyDeviceSimulator() {
               <span>Incident Summary: </span>
               <strong style={{ color: colors.text }}>"{sosConfirmation.summary}"</strong>
               <span className="ml-2 uppercase font-semibold" style={{ color: colors.flare }}>
-                ({sosConfirmation.severity})
+                ({formatEnumLabel(sosConfirmation.severity)})
               </span>
             </div>
 
@@ -1342,7 +1335,7 @@ export default function EmergencyDeviceSimulator() {
                     ) : (
                       personnelList.map((p) => (
                         <option key={p.personnel_id} value={p.personnel_id}>
-                          {p.personnel_name} ({p.role || "Operator"} — {p.current_station_name || "Bharti"})
+                          {p.personnel_name} ({formatEnumLabel(p.role, "Operator")} — {p.current_station_name || "Bharti"})
                         </option>
                       ))
                     )}

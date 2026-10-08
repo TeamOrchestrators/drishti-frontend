@@ -1,3 +1,5 @@
+import {formatEnumLabel} from "./formatLabel.js";
+
 export const transportModeOptions = [
   {value: "airlift", label: "Air lift"},
   {value: "sea_lift", label: "Sea lift"},
@@ -30,7 +32,7 @@ export function shipmentRouteColor(shipment, index = 0) {
 
 export function shipmentRouteLabel(shipment) {
   const code = shipment?.shipment_code || shipment?.code || "Shipment";
-  const mode = String(shipment?.transport_mode || "route").replace(/_/g, " ");
+  const mode = formatEnumLabel(shipment?.transport_mode, "Route");
   return `${code} · ${mode}`;
 }
 

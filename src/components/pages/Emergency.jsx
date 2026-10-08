@@ -24,6 +24,7 @@ import Modal from "../ui/Modal.jsx";
 import { emergencyApi } from "../../services/api";
 import { useEmergencyStore } from "../../store/useEmergencyStore";
 import { formatCoordinates } from "../../utils/geo";
+import {formatEnumLabel} from "../../utils/formatLabel.js";
 
 const EmergencyMap = lazy(() => import("../emergency/EmergencyMap"));
 
@@ -61,10 +62,7 @@ function getStatusTone(status) {
 }
 
 function formatStatusLabel(status) {
-  if (!status) return "Unknown";
-  const s = status.toLowerCase();
-  if (s === "immediate_response") return "Immediate response";
-  return s.charAt(0).toUpperCase() + s.slice(1);
+  return formatEnumLabel(status, "Unknown");
 }
 
 function getSeverityColor(severity) {
@@ -75,10 +73,7 @@ function getSeverityColor(severity) {
 }
 
 function formatSeverityLabel(severity) {
-  if (!severity) return "Moderate";
-  return severity
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return formatEnumLabel(severity, "Moderate");
 }
 
 function formatTimestamp(ts) {
@@ -107,7 +102,6 @@ const Emergency = () => {
 
   const storeEmergencies = useEmergencyStore((s) => s.emergencies);
   const storeActive = useEmergencyStore((s) => s.activeEmergencies);
-  const latestTelemetry = useEmergencyStore((s) => s.latestTelemetry);
   const telemetryTracks = useEmergencyStore((s) => s.telemetryTracks);
 
   const displayList = useMemo(() => {
@@ -143,7 +137,7 @@ const Emergency = () => {
       return storeActive;
     }
     return list;
-  }, [emergencies, storeEmergencies, storeActive, latestTelemetry, telemetryTracks]);
+  }, [emergencies, storeEmergencies, storeActive, telemetryTracks]);
 
   const toggleMap = useCallback((id) => {
     setExpandedMapIds((prev) => ({
@@ -365,7 +359,7 @@ const Emergency = () => {
             const statusTone = getStatusTone(e.status);
             const statusLabel = formatStatusLabel(e.status);
             const coords = formatCoordinates(e.latitude, e.longitude);
-            const title = e.summary || e.emergency_type || "Emergency incident";
+            const title = e.summary || formatEnumLabel(e.emergency_type, "Emergency incident");
             const code = e.emergency_code || e.id;
             const isMapExpanded = expandedMapIds[e.id] !== undefined ? expandedMapIds[e.id] : (isActive && hasValidCoordinates(e));
 

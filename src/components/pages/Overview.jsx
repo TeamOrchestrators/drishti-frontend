@@ -22,7 +22,7 @@ import { useCargoStore } from "../../store/useCargoStore.js";
 import { useInventoryStore } from "../../store/useInventoryStore.js";
 import {useState, useEffect, useCallback, useMemo, lazy, Suspense} from "react";
 import {useEmergencyStore} from "../../store/useEmergencyStore.js";
-import { formatCoordinates } from "../../utils/geo";
+import {formatEnumLabel} from "../../utils/formatLabel.js";
 
 const EmergencyMap = lazy(() => import("../emergency/EmergencyMap.jsx"));
 
@@ -36,7 +36,6 @@ const Overview = ({ go }) => {
   const {
     activeEmergencies,
     latestTelemetry,
-    telemetryTracks,
     fetchActive: fetchActiveEmergencies,
   } = useEmergencyStore();
 
@@ -222,7 +221,7 @@ const Overview = ({ go }) => {
                     className="text-sm font-bold"
                     style={{color: colors.flare}}
                   >
-                    {newestActiveEmergency.summary || newestActiveEmergency.emergency_type || "Emergency incident"}
+                    {newestActiveEmergency.summary || formatEnumLabel(newestActiveEmergency.emergency_type, "Emergency incident")}
                   </span>
                   <span
                     className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded tracking-wider uppercase"
@@ -413,9 +412,7 @@ const Overview = ({ go }) => {
                       : rawStatus === "active" || rawStatus.includes("way")
                       ? 80
                       : 45);
-                  const displayStatus = e.status
-                    ? e.status.charAt(0).toUpperCase() + e.status.slice(1)
-                    : "Planned";
+                  const displayStatus = formatEnumLabel(e.status, "Planned");
 
                   return (
                     <div
@@ -515,7 +512,7 @@ const Overview = ({ go }) => {
                     ? "Waiting for weather"
                     : rawStatus === "arrived_safely"
                     ? "Arrived safely"
-                    : m.movement_status || m.statusLabel || m.status || "In transit";
+                    : formatEnumLabel(m.movement_status || m.statusLabel || m.status, "In Transit");
 
                 return (
                   <div
@@ -643,9 +640,7 @@ const Overview = ({ go }) => {
                     : rawStatus === "planned"
                     ? "amber"
                     : "ice";
-                const displayStatus = b.status
-                  ? b.status.charAt(0).toUpperCase() + b.status.slice(1)
-                  : "Planned";
+                const displayStatus = formatEnumLabel(b.status, "Planned");
 
                 return (
                   <div key={b.id || code} className="flex items-center justify-between gap-2">

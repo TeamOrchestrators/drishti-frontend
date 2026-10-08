@@ -10,6 +10,7 @@ import { colors, mono } from "../../theme.js";
 import { useExpeditionStore } from "../../store/useExpeditionStore.js";
 import {usePersonnelStore} from "../../store/usePersonnelStore.js";
 import {formatDisplayDateTime, toDateTimeLocalValue, toUtcISOString} from "../../utils/dateTime.js";
+import {formatEnumLabel} from "../../utils/formatLabel.js";
 
 function isStationMatch(station, currentStation) {
   if (!station || !currentStation) return false;
@@ -173,7 +174,7 @@ const Expedition = () => {
     }
     return list.map((p) => ({
       value: p.id,
-      label: `${p.full_name} (${p.role || p.personnel_code || "Personnel"})`,
+      label: `${p.full_name} (${p.role ? formatEnumLabel(p.role) : p.personnel_code || "Personnel"})`,
     }));
   }, [filteredPersonnel, editingId, form.team_leader_id, apiPersonnel]);
 
@@ -460,9 +461,7 @@ const Expedition = () => {
             const endDateFormatted = endDate ? formatDisplayDateTime(endDate, null) : null;
             const timeline = e.day || computeTimeline(startDate, endDate);
             const tone = e.tone || getTone(e.status);
-            const displayStatus = e.status
-              ? e.status.charAt(0).toUpperCase() + e.status.slice(1)
-              : "Planned";
+            const displayStatus = formatEnumLabel(e.status, "Planned");
 
             return (
               <Panel key={e.id || expId} style={{ padding: 0 }}>

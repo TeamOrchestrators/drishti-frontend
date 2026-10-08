@@ -6,6 +6,7 @@ import {AlertCircle, RefreshCw, Radio, Navigation, Maximize2} from "lucide-react
 import { colors, mono } from "../../theme";
 import {useEmergencyStore} from "../../store/useEmergencyStore";
 import MapErrorBoundary from "../ui/MapErrorBoundary";
+import {formatEnumLabel} from "../../utils/formatLabel.js";
 
 // Configure Web Worker for Vite bundler
 if (typeof window !== "undefined" && maplibregl.setWorkerUrl && maplibreWorkerUrl) {
@@ -112,11 +113,11 @@ function generatePopupHtml(emergency, lat, lng, accuracyMeters, pointsCount) {
           emergency?.emergency_code || emergency?.id || "INCIDENT"
         )}</span>
         <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: #fee2e2; color: #991b1b; text-transform: uppercase;">
-          ${escapeHtml(emergency?.status || "Active")}
+          ${escapeHtml(formatEnumLabel(emergency?.status, "Active"))}
         </span>
       </div>
       <div style="font-weight: 600; color: #1e293b; margin-bottom: 6px; font-size: 12px;">
-        ${escapeHtml(emergency?.summary || emergency?.emergency_type || "Emergency incident")}
+        ${escapeHtml(emergency?.summary || formatEnumLabel(emergency?.emergency_type, "Emergency incident"))}
       </div>
       <div style="border-top: 1px solid #e2e8f0; padding-top: 6px; display: grid; gap: 4px; font-size: 11px;">
         <div>

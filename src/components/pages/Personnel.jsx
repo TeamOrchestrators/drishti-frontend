@@ -23,6 +23,7 @@ import { usePersonnelStore } from "../../store/usePersonnelStore.js";
 import { useExpeditionStore } from "../../store/useExpeditionStore.js";
 import PersonnelDrawer from "../personnel/PersonnelDrawer.jsx";
 import {formatDisplayDateTime, toDateTimeLocalValue, toUtcISOString} from "../../utils/dateTime.js";
+import {formatEnumLabel} from "../../utils/formatLabel.js";
 
 function formatStatus(status) {
   if (!status) return "—";
@@ -477,7 +478,7 @@ const Personnel = () => {
 
       return {
         value: id,
-        label: `${personName} (${p.role || p.personnel_code || "Personnel"})${statusTag}`,
+        label: `${personName} (${p.role ? formatEnumLabel(p.role) : p.personnel_code || "Personnel"})${statusTag}`,
       };
     });
   }, [
@@ -874,7 +875,7 @@ const Personnel = () => {
                   movingPersonnel.map((p, i) => {
                     const person = totalPersonnel.find((item) => item.id === p.personnel_id || item.personnel_id === p.personnel_id);
                     const displayName = p.full_name || p.personnel_name || (person ? (person.full_name || person.name) : p.name) || "—";
-                    const displayRole = p.role || (person ? person.role : "—");
+                    const displayRole = formatEnumLabel(p.role || person?.role);
                     const displayStation = p.current_station_name || (person ? (person.current_station_name || resolveStation(person.current_station_id)) : resolveStation(p.origin_station_id));
                     const fromStation = p.origin_station_name || resolveStation(p.origin_station_id) || "—";
                     const toStation = p.destination_station_name || resolveStation(p.destination_station_id) || "—";
@@ -1078,7 +1079,7 @@ const Personnel = () => {
 
                         <div className="flex items-center gap-2 text-xs truncate mt-0.5"
                              style={{color: colors.textMuted}}>
-                          <span className="truncate">{person.role || "Station Staff"}</span>
+                          <span className="truncate">{formatEnumLabel(person.role, "Station Staff")}</span>
                           <span style={{color: colors.textFaint}}>•</span>
                           {person.isInTransit ? (
                             <span
