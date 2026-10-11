@@ -161,7 +161,7 @@ polar-ops-frontend/
 
 ### Prerequisites
 
-- Node.js (v18.0.0 or higher recommended)
+- Node.js (v20.19.0 or higher)
 - npm (v9.0.0 or higher) or equivalent package manager (pnpm / yarn)
 
 ### Installation
@@ -203,6 +203,29 @@ polar-ops-frontend/
 | `npm run build` | Compiles and bundles production-ready assets into the `dist/` directory |
 | `npm run preview` | Serves the local production build for pre-deployment verification |
 | `npm run lint` | Executes ESLint to validate code quality and conformance to style standards |
+| `pnpm test:e2e` | Resets `drishti_test`, starts isolated services, and runs the Playwright suite |
+| `pnpm test:e2e:ui` | Opens Playwright's interactive runner for visible, step-by-step testing |
+| `pnpm test:e2e:report` | Opens the latest HTML report with traces, screenshots, and videos |
+
+### End-to-end testing
+
+The Playwright configuration uses the sibling `drishti-backend` checkout, derives a dedicated
+`drishti_test` URL from its local `.env`, applies migrations, and reloads deterministic seed data.
+It refuses to reset any database whose name is not exactly `drishti_test`. The isolated test servers
+run on ports `18080` (API) and `15173` (frontend), so they do not conflict with the normal development
+servers.
+
+Install Chromium once, then run the suite or its interactive UI:
+
+```bash
+pnpm exec playwright install chromium
+pnpm test:e2e
+pnpm test:e2e:ui
+```
+
+If PostgreSQL or Goose are installed outside their usual locations, set `E2E_PSQL_BIN` and
+`E2E_GOOSE_BIN`. Set `E2E_DB_URL` only when the sibling backend `.env` is unavailable; the database
+name is still forced to `drishti_test`.
 
 ---
 
@@ -222,4 +245,4 @@ Copyright 2026 Team Orchestrators.
 
 This project is licensed under the Apache License, Version 2.0. You may use, modify, and distribute it in accordance with the terms of the license. See [LICENSE](LICENSE) for the full text.
 
-SPDX identifier: `Apache-2.0` 
+SPDX identifier: `Apache-2.0`

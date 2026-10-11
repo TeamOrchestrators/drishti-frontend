@@ -1,11 +1,11 @@
-import {colors, font, mono} from "../../theme.js";
+import {colors, font} from "../../theme.js";
 import { Clock, Radio, Sun, Moon, Menu } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useTheme } from "../../context/ThemeContext";
+import {useTheme} from "../../context/themeContextValue.js";
 
 const Header = ({ onMenuClick }) => {
   const [time, setTime] = useState(new Date());
-  const { theme, toggleTheme, isDark } = useTheme();
+  const {toggleTheme, isDark} = useTheme();
 
   useEffect(() => {
     const timerId = setInterval(() => {

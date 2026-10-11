@@ -1,6 +1,7 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
 import tailwindcss from "@tailwindcss/vite";
+import process from "node:process";
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -18,7 +19,7 @@ export default defineConfig(({ mode }) => {
       "User-Agent": "PolarOps/1.0",
     },
     configure: (proxy) => {
-      proxy.on("error", (err, req, res) => {
+      proxy.on("error", (err) => {
         console.error("[Vite Proxy Error]:", err.message);
       });
     },
@@ -29,6 +30,7 @@ export default defineConfig(({ mode }) => {
     server: {
       allowedHosts: [
         "stump-vitamins-talisman.ngrok-free.dev",
+        "a9f2-171-61-167-126.ngrok-free.app",
         ".ngrok-free.dev",
         ".ngrok.io",
         ".ngrok.app",

@@ -172,7 +172,12 @@ const Personnel = () => {
         map.set(id, {...exp, id});
       }
     }
-    return Array.from(map.values());
+    return Array.from(map.values()).filter((expedition) => {
+      const status = String(expedition.status || expedition.expedition_status || "")
+        .trim()
+        .toLowerCase();
+      return status !== "completed" && status !== "cancelled";
+    });
   }, [formOptions.expeditions, liveExpeditions]);
 
   // Selected expedition object

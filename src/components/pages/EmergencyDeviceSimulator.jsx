@@ -21,7 +21,7 @@ import { formatCoordinates } from "../../utils/geo";
 import {formatEnumLabel} from "../../utils/formatLabel.js";
 import { emergencySimulatorApi } from "../../services/api";
 import { useEmergencyStore } from "../../store/useEmergencyStore";
-import { useTheme } from "../../context/ThemeContext";
+import {useTheme} from "../../context/themeContextValue.js";
 import Panel from "../ui/Panel";
 import Modal from "../ui/Modal";
 

@@ -1,11 +1,5 @@
 import { colors } from "../../theme";
 
-const baseStyle = {
-    background: colors.bgRaised,
-    border: `1px solid ${colors.border}`,
-    color: colors.text,
-};
-
 // A labeled input, select, or textarea for use inside forms/modals.
 // Usage: <FormField label="Item name" value={x} onChange={setX} />
 //        <FormField label="Priority" as="select" options={["Critical","Standard"]} value={x} onChange={setX} />
